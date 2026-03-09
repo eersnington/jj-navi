@@ -11,7 +11,7 @@
     "bin/navi"
   ],
   "engines": {
-    "node": ">=16"
+    "node": ">=20"
   },
   "optionalDependencies": {
     "jj-navi-darwin-arm64": "0.0.1-alpha.1",
