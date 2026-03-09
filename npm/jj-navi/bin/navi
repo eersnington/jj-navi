@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+
+const { execSync, spawnSync } = require("child_process");
+const { existsSync } = require("fs");
+
+const PLATFORMS = {
+  win32: {
+    x64: "jj-navi-win32-x64/navi.exe",
+    arm64: "jj-navi-win32-arm64/navi.exe",
+  },
+  darwin: {
+    x64: "jj-navi-darwin-x64/navi",
+    arm64: "jj-navi-darwin-arm64/navi",
+  },
+  linux: {
+    x64: "jj-navi-linux-x64/navi",
+    arm64: "jj-navi-linux-arm64/navi",
+  },
+  "linux-musl": {
+    x64: "jj-navi-linux-x64-musl/navi",
+    arm64: "jj-navi-linux-arm64-musl/navi",
+  },
+};
+
+function isMusl() {
+  if (process.platform !== "linux") return false;
+  if (existsSync("/etc/alpine-release")) return true;
+
+  try {
+    const output = execSync("ldd --version 2>&1", { encoding: "utf8" });
+    return output.toLowerCase().includes("musl");
+  } catch (error) {
+    const stderr = error.stderr?.toString() || error.message || "";
+    return stderr.toLowerCase().includes("musl");
+  }
+}
+
+function resolveBinaryPath() {
+  if (process.env.NAVI_BINARY_PATH) {
+    return process.env.NAVI_BINARY_PATH;
+  }
+
+  const platform = process.platform === "linux" && isMusl() ? "linux-musl" : process.platform;
+  const packagePath = PLATFORMS[platform]?.[process.arch];
+
+  if (!packagePath) {
+    return null;
+  }
+
+  try {
+    return require.resolve(packagePath);
+  } catch {
+    return null;
+  }
+}
+
+const binaryPath = resolveBinaryPath();
+
+if (!binaryPath) {
+  console.error(`Error: No prebuilt navi binary for ${process.platform}-${process.arch}`);
+  console.error("Build from source with `cargo install jj-navi` or set NAVI_BINARY_PATH.");
+  process.exit(1);
+}
+
+const result = spawnSync(binaryPath, process.argv.slice(2), {
+  stdio: "inherit",
+  shell: false,
+});
+
+if (result.error) {
+  console.error(result.error.message);
+  process.exit(1);
+}
+
+process.exit(result.status ?? 1);

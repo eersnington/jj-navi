@@ -1,0 +1,28 @@
+{
+  "name": "jj-navi",
+  "version": "0.0.1-alpha.1",
+  "description": "Workspace navigator for Jujutsu",
+  "license": "MIT",
+  "bin": {
+    "navi": "bin/navi"
+  },
+  "files": [
+    "bin/navi"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "optionalDependencies": {
+    "jj-navi-darwin-arm64": "0.0.1-alpha.1",
+    "jj-navi-darwin-x64": "0.0.1-alpha.1",
+    "jj-navi-linux-arm64": "0.0.1-alpha.1",
+    "jj-navi-linux-x64": "0.0.1-alpha.1",
+    "jj-navi-linux-arm64-musl": "0.0.1-alpha.1",
+    "jj-navi-linux-x64-musl": "0.0.1-alpha.1",
+    "jj-navi-win32-arm64": "0.0.1-alpha.1",
+    "jj-navi-win32-x64": "0.0.1-alpha.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
