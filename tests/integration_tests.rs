@@ -131,3 +131,21 @@ fn nv_binary_works() {
             repo.repo_name()
         )));
 }
+
+#[test]
+fn navi_help_uses_navi_name() {
+    command("navi")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage: navi"));
+}
+
+#[test]
+fn nv_help_uses_nv_name() {
+    command("nv")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage: nv"));
+}
