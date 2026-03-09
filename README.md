@@ -5,6 +5,7 @@ Minimal workspace navigator for Jujutsu.
 ## v0
 
 - `navi switch <workspace>`
+- `nv switch <workspace>`
 - `navi switch --create <workspace>`
 - `navi switch --create <workspace> --revision <revset>`
 - `navi list`
@@ -14,6 +15,8 @@ Minimal workspace navigator for Jujutsu.
 ```sh
 cargo install --path .
 ```
+
+This installs both `navi` and `nv`.
 
 ## Usage
 

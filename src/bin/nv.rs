@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use jj_navi::cli;
 
 #[derive(Parser)]
-#[command(name = "navi")]
+#[command(name = "nv")]
 #[command(about = "Workspace navigator for Jujutsu")]
 #[command(version)]
 struct Cli {

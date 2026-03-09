@@ -1,9 +1,15 @@
 use std::path::Path;
 
-use jj_navi::repo::NaviWorkspace;
-use jj_navi::types::WorkspaceName;
-use jj_navi::{Error, Result};
+use crate::repo::NaviWorkspace;
+use crate::types::WorkspaceName;
+use crate::{Error, Result};
 
+/// Run the `switch` command.
+///
+/// # Errors
+///
+/// Returns an error if workspace validation, discovery, or `jj workspace add`
+/// fails.
 pub fn run_switch(
     path: &Path,
     workspace: &str,

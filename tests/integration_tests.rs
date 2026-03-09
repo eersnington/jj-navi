@@ -5,8 +5,12 @@ use predicates::prelude::*;
 
 use common::TempJjRepo;
 
-fn navi_command() -> Command {
-    Command::new(assert_cmd::cargo::cargo_bin!("navi"))
+fn command(bin: &str) -> Command {
+    match bin {
+        "navi" => Command::new(assert_cmd::cargo::cargo_bin!("navi")),
+        "nv" => Command::new(assert_cmd::cargo::cargo_bin!("nv")),
+        _ => panic!("unknown bin: {bin}"),
+    }
 }
 
 #[test]
@@ -14,7 +18,7 @@ fn switch_existing_prints_relative_path() {
     let repo = TempJjRepo::new();
     repo.create_workspace("feature-auth");
 
-    navi_command()
+    command("navi")
         .current_dir(repo.path())
         .args(["switch", "feature-auth"])
         .assert()
@@ -32,7 +36,7 @@ fn switch_create_creates_workspace() {
         repo.path()
             .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
 
-    navi_command()
+    command("navi")
         .current_dir(repo.path())
         .args(["switch", "--create", "feature-auth"])
         .assert()
@@ -53,7 +57,7 @@ fn switch_create_with_revision_uses_requested_parent() {
         repo.path()
             .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
 
-    navi_command()
+    command("navi")
         .current_dir(repo.path())
         .args(["switch", "--create", "feature-auth", "--revision", "@"])
         .assert()
@@ -78,7 +82,7 @@ fn list_prints_workspace_table() {
     repo.create_workspace("feature-auth");
     repo.create_workspace("bugfix-api");
 
-    navi_command()
+    command("navi")
         .current_dir(repo.path())
         .args(["list"])
         .assert()
@@ -102,13 +106,28 @@ fn nested_workspace_discovery_works_from_secondary_workspace() {
     let nested_path = feature_path.join("nested").join("dir");
     std::fs::create_dir_all(&nested_path).expect("create nested path");
 
-    navi_command()
+    command("navi")
         .current_dir(&nested_path)
         .args(["switch", "--create", "bugfix-api"])
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
             "{}.bugfix-api",
+            repo.repo_name()
+        )));
+}
+
+#[test]
+fn nv_binary_works() {
+    let repo = TempJjRepo::new();
+
+    command("nv")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
             repo.repo_name()
         )));
 }

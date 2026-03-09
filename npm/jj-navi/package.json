@@ -4,7 +4,8 @@
   "description": "Workspace navigator for Jujutsu",
   "license": "MIT",
   "bin": {
-    "navi": "bin/navi"
+    "navi": "bin/navi",
+    "nv": "bin/navi"
   },
   "files": [
     "bin/navi"
