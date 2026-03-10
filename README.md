@@ -1,6 +1,6 @@
 # jj-navi
 
-`jj-navi` is workspace navigation and management for Jujutsu, built for parallel work by humans and AI agents.
+`jj-navi` is workspace navigation and management for Jujutsu, built for parallel human and AI agent workflows.
 
 It is a UX layer over native `jj workspace` commands.
 
