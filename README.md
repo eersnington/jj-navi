@@ -21,14 +21,26 @@ Core idea:
 - people running coding agents in separate workspaces
 - people who want a worktree-like workspace UX on top of `jj`
 
-## Current version
-
-- `0.0.1-alpha.1`
+## Requirements
 - minimum supported `jj`: `0.39.0`
 
 ## Install
 
 ```sh
+cargo install jj-navi --version 0.0.1-alpha.1
+```
+
+or
+
+```sh
+npm i -g jj-navi
+```
+
+or
+
+```sh
+git clone https://github.com/eersnington/jj-navi.git
+cd jj-navi
 cargo install --path .
 ```
 
@@ -45,11 +57,23 @@ The same commands also work with `nv`.
 
 ## Usage
 
+Current v0 flow, until shell integration lands:
+
 ```sh
 navi switch --create feature-auth
 cd "$(navi switch feature-auth)"
 navi list
 ```
+
+`navi switch ...` currently prints the target path. The `$(...)` part passes that path into `cd`.
+
+Goal state in a later version:
+
+```sh
+navi switch feature-auth
+```
+
+and your shell changes directory directly.
 
 ## Notes
 
