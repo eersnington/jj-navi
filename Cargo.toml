@@ -3,8 +3,13 @@ name = "jj-navi"
 version = "0.0.1-alpha.1"
 edition = "2024"
 rust-version = "1.87"
-description = "Workspace navigator for Jujutsu"
+description = "Workspace navigation and management for Jujutsu, built for parallel work by humans and AI agents"
 license = "MIT"
+repository = "https://github.com/eersnington/jj-navi"
+homepage = "https://github.com/eersnington/jj-navi"
+readme = "README.md"
+keywords = ["jj", "jujutsu", "workspace", "agents", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "navi"

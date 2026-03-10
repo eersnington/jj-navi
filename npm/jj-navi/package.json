@@ -1,8 +1,23 @@
 {
   "name": "jj-navi",
   "version": "0.0.1-alpha.1",
-  "description": "Workspace navigator for Jujutsu",
+  "description": "Workspace navigation and management for Jujutsu, built for parallel work by humans and AI agents",
+  "homepage": "https://github.com/eersnington/jj-navi",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eersnington/jj-navi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eersnington/jj-navi/issues"
+  },
+  "keywords": [
+    "jj",
+    "jujutsu",
+    "workspace",
+    "agents",
+    "cli"
+  ],
   "bin": {
     "navi": "bin/navi",
     "nv": "bin/navi"
