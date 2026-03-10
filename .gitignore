@@ -1,5 +1,10 @@
 /target
-/.firecrawl
 .DS_Store
+
+# npm binaries for platforms
 /npm/*/navi
 /npm/*/navi.exe
+
+# ai stuff
+/.firecrawl
+.opencode
