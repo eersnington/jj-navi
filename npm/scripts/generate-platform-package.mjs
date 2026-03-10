@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -37,7 +37,10 @@ if (config.libc) {
   packageJson.libc = [config.libc];
 }
 
+const platformDir = join(__dirname, "..", platform);
+mkdirSync(platformDir, { recursive: true });
+
 writeFileSync(
-  join(__dirname, "..", platform, "package.json"),
+  join(platformDir, "package.json"),
   JSON.stringify(packageJson, null, 2) + "\n"
 );

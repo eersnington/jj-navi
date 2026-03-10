@@ -1,0 +1,72 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to prepare"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify main branch
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Run Prepare Release from main"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare release files
+        run: node scripts/release/plan.mjs "${{ inputs.version }}"
+
+      - name: Refresh Cargo.lock
+        run: cargo check --quiet
+
+      - name: Validate release files
+        run: node scripts/release/validate.mjs "${{ inputs.version }}"
+
+      - name: Create release PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "release: v${{ inputs.version }}"
+          title: "release: v${{ inputs.version }}"
+          body: |
+            Prepare release `v${{ inputs.version }}`.
+
+            Generated from `.release/*.md` fragments.
+          branch: "release/v${{ inputs.version }}"
+          base: main
+          delete-branch: true
+          add-paths: |
+            .release/
+            CHANGELOG.md
+            Cargo.toml
+            Cargo.lock
+            README.md
+            npm/jj-navi/package.json

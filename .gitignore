@@ -4,6 +4,12 @@
 # npm binaries for platforms
 /npm/*/navi
 /npm/*/navi.exe
+/npm/darwin-arm64/
+/npm/darwin-x64/
+/npm/linux-arm64/
+/npm/linux-x64/
+/npm/linux-arm64-musl/
+/npm/linux-x64-musl/
 
 # ai stuff
 /.firecrawl

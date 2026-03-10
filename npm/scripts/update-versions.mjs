@@ -25,10 +25,9 @@ try {
 const packagePath = join(npmDir, "jj-navi", "package.json");
 const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
 packageJson.version = version;
-
-for (const dependencyName of Object.keys(packageJson.optionalDependencies)) {
-  packageJson.optionalDependencies[dependencyName] = version;
-}
+packageJson.optionalDependencies = Object.fromEntries(
+  Object.keys(platforms).map((platform) => [`jj-navi-${platform}`, version])
+);
 
 writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n");
 

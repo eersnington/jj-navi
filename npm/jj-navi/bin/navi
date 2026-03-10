@@ -4,10 +4,6 @@ const { execSync, spawnSync } = require("child_process");
 const { existsSync } = require("fs");
 
 const PLATFORMS = {
-  win32: {
-    x64: "jj-navi-win32-x64/navi.exe",
-    arm64: "jj-navi-win32-arm64/navi.exe",
-  },
   darwin: {
     x64: "jj-navi-darwin-x64/navi",
     arm64: "jj-navi-darwin-arm64/navi",
