@@ -1,4 +1,5 @@
 /target
 /.firecrawl
+.DS_Store
 /npm/*/navi
 /npm/*/navi.exe
