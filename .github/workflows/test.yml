@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 env:
   CARGO_INCREMENTAL: 0
@@ -19,6 +20,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -39,3 +45,9 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Validate release files
+        run: node scripts/release/validate.mjs
+
+      - name: Smoke test fragment command
+        run: ./scripts/release/new "smoke test fragment" -s ci --dry-run

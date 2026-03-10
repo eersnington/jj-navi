@@ -46,6 +46,15 @@ cargo install --path .
 
 This installs both `navi` and `nv`.
 
+Prebuilt npm binaries currently target:
+
+- macOS arm64
+- macOS x64
+- Linux arm64 (gnu)
+- Linux x64 (gnu)
+- Linux arm64 (musl)
+- Linux x64 (musl)
+
 ## Current commands
 
 - `navi switch <workspace>`
@@ -80,3 +89,31 @@ and your shell changes directory directly.
 - current scope is v0
 - shell integration is not implemented yet, so `switch` prints the target path for now
 - future versions are planned to add shell integration, remove, metadata, and richer workspace visibility
+
+## Release Fragments
+
+Every user-facing PR should add one fragment in `.release/`.
+
+Create one with:
+
+```sh
+./scripts/release/new "fix nested workspace discovery" -s cli
+```
+
+The fragment body becomes changelog and GitHub release notes.
+
+Default bump is `patch`, so only pass `minor` or `major` when needed.
+
+## Releasing
+
+Release flow is manual and two-step:
+
+1. Run `Prepare Release` in GitHub Actions with the target version.
+2. Review and merge the generated release PR.
+3. Run `Publish Release` in GitHub Actions with the same version.
+
+`Prepare Release` rolls `.release/*.md` fragments into `CHANGELOG.md`, syncs versions, and opens a release PR.
+
+`Publish Release` builds binaries, publishes crates.io and npm packages, tags `v<version>`, and creates the GitHub Release.
+
+For npm, configure trusted publishing for this GitHub repo on each `jj-navi*` package so the publish workflow can use OIDC instead of an npm token.

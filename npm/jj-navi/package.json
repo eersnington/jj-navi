@@ -34,11 +34,10 @@
     "jj-navi-linux-arm64": "0.0.1-alpha.1",
     "jj-navi-linux-x64": "0.0.1-alpha.1",
     "jj-navi-linux-arm64-musl": "0.0.1-alpha.1",
-    "jj-navi-linux-x64-musl": "0.0.1-alpha.1",
-    "jj-navi-win32-arm64": "0.0.1-alpha.1",
-    "jj-navi-win32-x64": "0.0.1-alpha.1"
+    "jj-navi-linux-x64-musl": "0.0.1-alpha.1"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }
