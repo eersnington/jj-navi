@@ -141,6 +141,35 @@ fn malformed_repo_config_fails_config_dependent_command() {
 }
 
 #[test]
+fn config_shell_init_bash_prints_wrapper() {
+    command("navi")
+        .args(["config", "shell", "init", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("navi()"))
+        .stdout(predicate::str::contains("NAVI_DIRECTIVE_FILE"));
+}
+
+#[test]
+fn config_shell_init_zsh_prints_wrapper() {
+    command("navi")
+        .args(["config", "shell", "init", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("navi()"))
+        .stdout(predicate::str::contains("command navi \"$@\""));
+}
+
+#[test]
+fn config_shell_init_rejects_unsupported_shell() {
+    command("navi")
+        .args(["config", "shell", "init", "fish"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: unsupported shell 'fish'"));
+}
+
+#[test]
 fn remove_cleans_up_workspace_metadata() {
     let repo = TempJjRepo::new();
 

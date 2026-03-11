@@ -34,6 +34,9 @@ pub enum Error {
     #[error("error: invalid workspace metadata in {path}\n{message}")]
     InvalidWorkspaceMetadata { path: PathBuf, message: String },
 
+    #[error("error: unsupported shell '{0}'")]
+    UnsupportedShell(String),
+
     #[error("error: jj command failed: {command}\n{stderr}")]
     JjCommandFailed { command: String, stderr: String },
 
