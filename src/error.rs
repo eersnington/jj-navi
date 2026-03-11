@@ -25,6 +25,12 @@ pub enum Error {
     #[error("error: invalid repo pointer in {0}")]
     InvalidRepoPointer(PathBuf),
 
+    #[error("error: invalid workspace template '{0}'")]
+    InvalidWorkspaceTemplate(String),
+
+    #[error("error: invalid repo config in {path}\n{message}")]
+    InvalidRepoConfig { path: PathBuf, message: String },
+
     #[error("error: jj command failed: {command}\n{stderr}")]
     JjCommandFailed { command: String, stderr: String },
 

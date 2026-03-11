@@ -47,6 +47,12 @@ fn switch_create_creates_workspace() {
         )));
 
     assert!(expected_path.is_dir());
+    assert!(repo.navi_config_path().is_file());
+    assert!(
+        std::fs::read_to_string(repo.navi_config_path())
+            .expect("read navi config")
+            .contains("workspace_template = \"../{repo}.{workspace}\"")
+    );
 }
 
 #[test]
@@ -74,6 +80,37 @@ fn switch_create_with_revision_uses_requested_parent() {
         String::from_utf8_lossy(&created_parent.stdout).trim(),
         expected_parent
     );
+}
+
+#[test]
+fn switch_create_uses_configured_workspace_template() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_config("workspace_template = \"../{workspace}\"\n");
+    let expected_path = repo.path().with_file_name("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("../feature-auth\n"));
+
+    assert!(expected_path.is_dir());
+}
+
+#[test]
+fn malformed_repo_config_fails_config_dependent_command() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_config("workspace_template = \"../{repo\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            repo.navi_config_path().display().to_string(),
+        ));
 }
 
 #[test]

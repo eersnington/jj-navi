@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -56,6 +57,21 @@ impl TempJjRepo {
 
     pub fn run(&self, args: &[&str]) -> String {
         run_jj(self.path(), args)
+    }
+
+    pub fn navi_config_path(&self) -> PathBuf {
+        self.path()
+            .join(".jj")
+            .join("repo")
+            .join("navi")
+            .join("config.toml")
+    }
+
+    pub fn write_navi_config(&self, contents: &str) {
+        let path = self.navi_config_path();
+        let parent = path.parent().expect("config parent");
+        fs::create_dir_all(parent).expect("create navi config dir");
+        fs::write(path, contents).expect("write navi config");
     }
 
     pub fn run_at(path: &Path, args: &[&str]) -> String {
