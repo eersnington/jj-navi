@@ -53,6 +53,13 @@ fn switch_create_creates_workspace() {
             .expect("read navi config")
             .contains("workspace_template = \"../{repo}.{workspace}\"")
     );
+    assert!(repo.navi_metadata_path().is_file());
+    let metadata = std::fs::read_to_string(repo.navi_metadata_path()).expect("read navi metadata");
+    assert!(metadata.contains("name = \"feature-auth\""));
+    assert!(metadata.contains("created_by_navi = true"));
+    assert!(metadata.contains("template = \"../{repo}.{workspace}\""));
+    assert!(metadata.contains("revision = \"\""));
+    assert!(metadata.contains("created_at = \""));
 }
 
 #[test]
@@ -131,6 +138,60 @@ fn malformed_repo_config_fails_config_dependent_command() {
         .stderr(predicate::str::contains(
             repo.navi_config_path().display().to_string(),
         ));
+}
+
+#[test]
+fn remove_cleans_up_workspace_metadata() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["remove", "feature-auth"])
+        .assert()
+        .success();
+
+    let metadata = std::fs::read_to_string(repo.navi_metadata_path()).expect("read navi metadata");
+    assert!(!metadata.contains("feature-auth"));
+}
+
+#[test]
+fn malformed_workspace_metadata_fails_metadata_writing_command() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_metadata("[[workspace]]\nname = \"feature-auth\"\ncreated_by_navi = true\ncreated_at = \"2026-03-11T00:00:00Z\"\ntemplate = \"../{repo\"\nrevision = \"\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "bugfix-api"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            repo.navi_metadata_path().display().to_string(),
+        ));
+
+    let expected_path =
+        repo.path()
+            .with_file_name(format!("{}.{}", repo.repo_name(), "bugfix-api"));
+    assert!(!expected_path.exists());
+}
+
+#[test]
+fn list_works_when_metadata_is_absent() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    assert!(!repo.navi_metadata_path().exists());
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-auth"));
 }
 
 #[test]

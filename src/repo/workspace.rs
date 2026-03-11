@@ -9,6 +9,7 @@ use crate::types::{RepoConfig, WorkspaceListEntry, WorkspaceName};
 use super::config::{ensure_repo_config, load_repo_config};
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
 use super::jj::JjClient;
+use super::metadata::WorkspaceMetadataStore;
 
 pub struct NaviWorkspace {
     cwd: PathBuf,
@@ -97,10 +98,13 @@ impl NaviWorkspace {
     /// Returns an error if the workspace does not exist or if `jj` returns an
     /// error.
     pub fn forget_workspace(&self, workspace: Option<&WorkspaceName>) -> Result<WorkspaceName> {
+        let mut metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
         let workspace = self.resolve_workspace_forget_target(workspace)?;
         let jj = JjClient::new(&self.workspace_root);
 
         jj.workspace_forget(&workspace)?;
+        metadata.remove_workspace(&workspace);
+        metadata.save()?;
 
         Ok(workspace)
     }
@@ -115,12 +119,15 @@ impl NaviWorkspace {
         workspace: &WorkspaceName,
         revision: Option<&str>,
     ) -> Result<PathBuf> {
+        let mut metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
         let target_root = self.planned_workspace_root(workspace);
         let jj = JjClient::new(&self.workspace_root);
 
         ensure_repo_config(&self.repo_storage_path, &self.config)?;
 
         jj.workspace_add(workspace, &target_root, revision)?;
+        metadata.record_workspace(workspace, &self.config.workspace_template, revision)?;
+        metadata.save()?;
 
         Ok(target_root)
     }

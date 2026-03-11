@@ -74,11 +74,26 @@ impl TempJjRepo {
             .join("config.toml")
     }
 
+    pub fn navi_metadata_path(&self) -> PathBuf {
+        self.path()
+            .join(".jj")
+            .join("repo")
+            .join("navi")
+            .join("workspaces.toml")
+    }
+
     pub fn write_navi_config(&self, contents: &str) {
         let path = self.navi_config_path();
         let parent = path.parent().expect("config parent");
         fs::create_dir_all(parent).expect("create navi config dir");
         fs::write(path, contents).expect("write navi config");
+    }
+
+    pub fn write_navi_metadata(&self, contents: &str) {
+        let path = self.navi_metadata_path();
+        let parent = path.parent().expect("metadata parent");
+        fs::create_dir_all(parent).expect("create navi metadata dir");
+        fs::write(path, contents).expect("write navi metadata");
     }
 
     pub fn run_at(path: &Path, args: &[&str]) -> String {
