@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use tempfile::TempDir;
+use tempfile::{Builder, TempDir};
 
 pub struct TempJjRepo {
     dir: TempDir,
@@ -10,7 +10,14 @@ pub struct TempJjRepo {
 
 impl TempJjRepo {
     pub fn new() -> Self {
-        let dir = TempDir::new().expect("create temp dir");
+        Self::new_with_prefix(".tmp")
+    }
+
+    pub fn new_with_prefix(prefix: &str) -> Self {
+        let dir = Builder::new()
+            .prefix(prefix)
+            .tempdir()
+            .expect("create temp dir");
 
         run_jj(dir.path(), &["git", "init"]);
         run_jj(
