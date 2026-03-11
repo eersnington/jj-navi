@@ -64,11 +64,35 @@ impl WorkspaceTemplate {
 
     #[must_use]
     pub fn render(&self, repo: &str, workspace: &WorkspaceName) -> PathBuf {
-        PathBuf::from(
-            self.0
-                .replace("{repo}", repo)
-                .replace("{workspace}", workspace.as_str()),
-        )
+        let mut rendered = String::new();
+        let mut chars = self.0.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                let mut placeholder = String::new();
+
+                for next in chars.by_ref() {
+                    if next == '}' {
+                        break;
+                    }
+                    placeholder.push(next);
+                }
+
+                match placeholder.as_str() {
+                    "repo" => rendered.push_str(repo),
+                    "workspace" => rendered.push_str(workspace.as_str()),
+                    _ => {
+                        rendered.push('{');
+                        rendered.push_str(&placeholder);
+                        rendered.push('}');
+                    }
+                }
+            } else {
+                rendered.push(ch);
+            }
+        }
+
+        PathBuf::from(rendered)
     }
 }
 

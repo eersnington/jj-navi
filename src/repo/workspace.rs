@@ -61,13 +61,10 @@ impl NaviWorkspace {
     }
 
     /// Compute the absolute workspace root for `workspace`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the current workspace root has no parent.
-    pub fn planned_workspace_root(&self, workspace: &WorkspaceName) -> Result<PathBuf> {
+    #[must_use]
+    pub fn planned_workspace_root(&self, workspace: &WorkspaceName) -> PathBuf {
         if workspace == &self.current_workspace {
-            return Ok(self.workspace_root.clone());
+            return self.workspace_root.clone();
         }
 
         let path = self
@@ -76,9 +73,9 @@ impl NaviWorkspace {
             .render(&self.repo_name, workspace);
 
         if path.is_absolute() {
-            Ok(path)
+            path
         } else {
-            Ok(self.workspace_root.join(path))
+            self.workspace_root.join(path)
         }
     }
 
@@ -91,9 +88,9 @@ impl NaviWorkspace {
     ///
     /// # Errors
     ///
-    /// Returns an error if path planning fails.
+    /// Returns an error if workspace discovery failed while opening the repo.
     pub fn workspace_exists(&self, workspace: &WorkspaceName) -> Result<bool> {
-        Ok(self.planned_workspace_root(workspace)?.is_dir())
+        Ok(self.planned_workspace_root(workspace).is_dir())
     }
 
     /// Forget a workspace via `jj workspace forget`.
@@ -115,13 +112,13 @@ impl NaviWorkspace {
     ///
     /// # Errors
     ///
-    /// Returns an error if path planning fails or if `jj` returns an error.
+    /// Returns an error if `jj` returns an error.
     pub fn create_workspace(
         &self,
         workspace: &WorkspaceName,
         revision: Option<&str>,
     ) -> Result<PathBuf> {
-        let target_root = self.planned_workspace_root(workspace)?;
+        let target_root = self.planned_workspace_root(workspace);
         let jj = JjClient::new(&self.workspace_root);
 
         ensure_repo_config(&self.repo_storage_path, &self.config)?;
@@ -155,9 +152,7 @@ impl NaviWorkspace {
         let path = if entry.is_current {
             self.display_path_for_switch(&self.workspace_root)
         } else {
-            let planned_root = self
-                .planned_workspace_root(&entry.name)
-                .unwrap_or_else(|_| PathBuf::from(entry.name.as_str()));
+            let planned_root = self.planned_workspace_root(&entry.name);
             self.display_path_for_switch(&planned_root)
         };
 

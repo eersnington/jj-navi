@@ -99,6 +99,26 @@ fn switch_create_uses_configured_workspace_template() {
 }
 
 #[test]
+fn switch_create_preserves_literal_placeholder_text_in_repo_name() {
+    let repo = TempJjRepo::new_with_prefix("repo{workspace}.");
+    let expected_path =
+        repo.path()
+            .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )));
+
+    assert!(expected_path.is_dir());
+}
+
+#[test]
 fn malformed_repo_config_fails_config_dependent_command() {
     let repo = TempJjRepo::new();
     repo.write_navi_config("workspace_template = \"../{repo\"\n");
