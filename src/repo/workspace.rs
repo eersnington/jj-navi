@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
-use crate::types::{WorkspaceEntry, WorkspaceName};
+use crate::types::{WorkspaceListEntry, WorkspaceName};
 
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
 use super::jj::JjClient;
@@ -136,13 +136,13 @@ impl NaviWorkspace {
     ///
     /// Returns an error if `jj workspace list` fails or if a workspace name is
     /// invalid for navi.
-    pub fn list_workspaces(&self) -> Result<Vec<WorkspaceEntry>> {
+    pub fn list_workspaces(&self) -> Result<Vec<WorkspaceListEntry>> {
         let jj = JjClient::new(&self.workspace_root);
 
         let mut entries = jj
             .list_workspaces()?
             .into_iter()
-            .map(|entry| self.workspace_entry(entry.name, entry.is_current))
+            .map(|entry| self.workspace_entry(entry))
             .collect::<Vec<_>>();
 
         entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -150,14 +150,23 @@ impl NaviWorkspace {
         Ok(entries)
     }
 
-    fn workspace_entry(&self, name: WorkspaceName, is_current: bool) -> WorkspaceEntry {
-        let path = if is_current {
-            PathBuf::from(".")
+    fn workspace_entry(&self, entry: super::jj::JjWorkspaceListEntry) -> WorkspaceListEntry {
+        let path = if entry.is_current {
+            self.display_path_for_switch(&self.workspace_root)
         } else {
-            self.planned_workspace_display(&name)
+            let planned_root = self
+                .planned_workspace_root(&entry.name)
+                .unwrap_or_else(|_| self.planned_workspace_display(&entry.name));
+            self.display_path_for_switch(&planned_root)
         };
 
-        WorkspaceEntry { name, path }
+        WorkspaceListEntry {
+            is_current: entry.is_current,
+            name: entry.name,
+            path,
+            commit_id: entry.commit_id,
+            message: entry.message,
+        }
     }
 
     fn resolve_workspace_forget_target(

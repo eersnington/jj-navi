@@ -9,6 +9,8 @@ use crate::types::WorkspaceName;
 pub(crate) struct JjWorkspaceListEntry {
     pub(crate) name: WorkspaceName,
     pub(crate) is_current: bool,
+    pub(crate) commit_id: String,
+    pub(crate) message: String,
 }
 
 pub(crate) struct JjClient<'a> {
@@ -42,7 +44,7 @@ impl<'a> JjClient<'a> {
             OsString::from("list"),
             OsString::from("-T"),
             OsString::from(
-                "name ++ \"\\t\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\n\"",
+                "name ++ \"\\0\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\0\" ++ target.commit_id().short(12) ++ \"\\0\" ++ target.description().first_line() ++ \"\\n\"",
             ),
         ])?;
 
@@ -121,13 +123,17 @@ fn format_command(args: &[OsString]) -> String {
 }
 
 fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
-    let mut parts = line.splitn(2, '\t');
+    let mut parts = line.splitn(4, '\0');
     let name = parts.next().unwrap_or_default();
     let is_current = parts.next().unwrap_or_default() == "1";
+    let commit_id = parts.next().unwrap_or_default();
+    let message = parts.next().unwrap_or_default();
 
     Ok(JjWorkspaceListEntry {
         name: WorkspaceName::new(name.to_owned())?,
         is_current,
+        commit_id: commit_id.to_owned(),
+        message: message.to_owned(),
     })
 }
 

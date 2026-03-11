@@ -58,6 +58,10 @@ impl TempJjRepo {
         run_jj(self.path(), args)
     }
 
+    pub fn run_at(path: &Path, args: &[&str]) -> String {
+        run_jj(path, args)
+    }
+
     pub fn rev_id(&self, revset: &str) -> String {
         self.run(&["log", "-r", revset, "--no-graph", "-T", "commit_id"])
             .trim()
