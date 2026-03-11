@@ -205,11 +205,12 @@ fn parse_fragment_args(args: &[String]) -> Result<FragmentCommand, ToolError> {
         }
     }
 
-    if let Some(first) = positionals.first() {
-        if let Ok(parsed_bump) = Bump::try_from(first.as_str()) {
-            bump = parsed_bump;
-            positionals.remove(0);
-        }
+    if let Some(parsed_bump) = positionals
+        .first()
+        .and_then(|first| Bump::try_from(first.as_str()).ok())
+    {
+        bump = parsed_bump;
+        positionals.remove(0);
     }
 
     let summary = if positionals.is_empty() {
@@ -381,7 +382,7 @@ fn prompt(message: &str) -> Result<String, ToolError> {
 
 fn find_repo_root(start: &Path) -> Result<PathBuf, ToolError> {
     for candidate in start.ancestors() {
-        if candidate.join(".jj").exists() {
+        if is_repo_root(candidate) {
             return Ok(candidate.to_path_buf());
         }
     }
@@ -389,6 +390,21 @@ fn find_repo_root(start: &Path) -> Result<PathBuf, ToolError> {
     Err(ToolError::Message(
         "navi-release must run inside the jj-navi repo".to_owned(),
     ))
+}
+
+fn is_repo_root(candidate: &Path) -> bool {
+    has_vcs_marker(candidate) && has_repo_markers(candidate)
+}
+
+fn has_vcs_marker(candidate: &Path) -> bool {
+    candidate.join(".jj").exists() || candidate.join(".git").exists()
+}
+
+fn has_repo_markers(candidate: &Path) -> bool {
+    candidate.join("Cargo.toml").is_file()
+        && candidate.join("CHANGELOG.md").is_file()
+        && candidate.join(".release").is_dir()
+        && candidate.join("xtask").join("Cargo.toml").is_file()
 }
 
 fn release_dir(repo_root: &Path) -> PathBuf {
@@ -835,4 +851,88 @@ fn read_json(path: &Path) -> Result<Value, ToolError> {
 
 fn write_json(path: &Path, value: &Value) -> Result<(), ToolError> {
     write_text(path, &(serde_json::to_string_pretty(value)? + "\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_repo_root, is_repo_root};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("jj-navi-{name}-{unique}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn touch(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dirs");
+        }
+        fs::write(path, "").expect("write file");
+    }
+
+    fn make_repo_markers(root: &Path) {
+        touch(&root.join("Cargo.toml"));
+        touch(&root.join("CHANGELOG.md"));
+        touch(&root.join("xtask").join("Cargo.toml"));
+        fs::create_dir_all(root.join(".release")).expect("create .release dir");
+    }
+
+    #[test]
+    fn detects_jj_repo_root() {
+        let temp = TempDir::new("jj-root");
+        let root = temp.path().join("repo");
+        fs::create_dir_all(root.join(".jj")).expect("create .jj dir");
+        make_repo_markers(&root);
+
+        assert!(is_repo_root(&root));
+        assert_eq!(
+            find_repo_root(&root.join("xtask")).expect("find repo root"),
+            root
+        );
+    }
+
+    #[test]
+    fn detects_git_repo_root_from_nested_dir() {
+        let temp = TempDir::new("git-root");
+        let root = temp.path().join("repo");
+        fs::create_dir_all(root.join(".git")).expect("create .git dir");
+        make_repo_markers(&root);
+        let nested = root.join("nested").join("deeper");
+        fs::create_dir_all(&nested).expect("create nested dir");
+
+        assert_eq!(find_repo_root(&nested).expect("find repo root"), root);
+    }
+
+    #[test]
+    fn rejects_random_git_repo_without_project_markers() {
+        let temp = TempDir::new("random-git-root");
+        let root = temp.path().join("repo");
+        fs::create_dir_all(root.join(".git")).expect("create .git dir");
+
+        assert!(!is_repo_root(&root));
+        assert!(find_repo_root(&root).is_err());
+    }
 }
