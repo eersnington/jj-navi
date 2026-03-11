@@ -55,9 +55,9 @@ impl<'a> JjClient<'a> {
 
     pub(crate) fn workspace_forget(&self, workspace: &WorkspaceName) -> Result<()> {
         self.run(&[
-            String::from("workspace"),
-            String::from("forget"),
-            workspace.as_str().to_owned(),
+            OsString::from("workspace"),
+            OsString::from("forget"),
+            OsString::from(workspace.as_str()),
         ])
         .map(|_| ())
     }
