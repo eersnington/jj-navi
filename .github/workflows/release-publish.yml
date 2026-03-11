@@ -85,6 +85,8 @@ jobs:
       contents: write
     outputs:
       release_ref: ${{ steps.release.outputs.release_ref }}
+      version: ${{ needs.validate.outputs.version }}
+      tag: ${{ needs.validate.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -253,7 +255,7 @@ jobs:
 
       - name: Compute release metadata
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ needs.tag.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             DIST_TAG="${VERSION#*-}"
             DIST_TAG="${DIST_TAG%%.*}"
@@ -264,7 +266,7 @@ jobs:
 
       - name: Stage npm packages
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ needs.tag.outputs.version }}"
           ARTIFACTS_DIR="$RUNNER_TEMP/artifacts"
           NPM_STAGE_DIR="$RUNNER_TEMP/npm"
           rm -rf "$NPM_STAGE_DIR"
@@ -278,7 +280,7 @@ jobs:
 
       - name: Publish npm platform packages
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ needs.tag.outputs.version }}"
           NPM_STAGE_DIR="$RUNNER_TEMP/npm"
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             PACKAGE_NAME="jj-navi-$platform"
@@ -291,7 +293,7 @@ jobs:
 
       - name: Publish npm wrapper package
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ needs.tag.outputs.version }}"
           if npm view "jj-navi@$VERSION" version >/dev/null 2>&1; then
             echo "jj-navi@$VERSION already published, skipping"
             exit 0
@@ -321,7 +323,7 @@ jobs:
 
       - name: Compute release metadata
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION="${{ needs.tag.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             echo "PRERELEASE=true" >> "$GITHUB_ENV"
           else
@@ -347,13 +349,13 @@ jobs:
           (cd "$RELEASE_DIR" && sha256sum *.tar.gz > checksums-sha256.txt)
 
       - name: Write release notes
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "${{ needs.validate.outputs.version }}" > "$RUNNER_TEMP/release/release-notes.md"
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "${{ needs.tag.outputs.version }}" > "$RUNNER_TEMP/release/release-notes.md"
 
       - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ needs.validate.outputs.tag }}"
+          TAG="${{ needs.tag.outputs.tag }}"
           RELEASE_DIR="$RUNNER_TEMP/release"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TAG" --notes-file "$RELEASE_DIR/release-notes.md"
