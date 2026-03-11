@@ -9,8 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: release-publish-${{ inputs.version }}
@@ -19,12 +18,13 @@ concurrency:
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
-  VERSION: ${{ inputs.version }}
 
 jobs:
-  verify:
+  validate:
     runs-on: ubuntu-latest
-    environment: release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Verify main branch
@@ -47,24 +47,69 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install jj
-        run: cargo install --locked jj-cli
-
-      - name: Validate release files
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "$VERSION"
-
-      - name: Ensure tag does not exist
+      - name: Normalize version
+        id: version
         run: |
-          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag v$VERSION already exists"
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if ! npx --yes semver "$VERSION" > /dev/null 2>&1; then
+            echo "::error::Invalid semver: $VERSION"
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        run: cargo test
+      - name: Validate release files
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ steps.version.outputs.version }}"
+
+      - name: Check tag state
+        run: |
+          git fetch --force --tags origin
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
+              exit 1
+            fi
+          fi
+
+  test:
+    needs: validate
+    uses: ./.github/workflows/test.yml
+
+  tag:
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_ref: ${{ steps.release.outputs.release_ref }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release tag if needed
+        id: release
+        run: |
+          git fetch --force --tags origin
+          TAG="${{ needs.validate.outputs.tag }}"
+          echo "release_ref=$TAG" >> "$GITHUB_OUTPUT"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
+              exit 1
+            fi
+            exit 0
+          fi
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
 
   build:
-    needs: verify
+    needs: tag
     strategy:
       fail-fast: false
       matrix:
@@ -73,39 +118,33 @@ jobs:
             runner: macos-15
             rust_target: aarch64-apple-darwin
             deployment_target: "13.0"
-            archive_name: jj-navi-darwin-arm64.tar.gz
           - platform: darwin-x64
             runner: macos-15-intel
             rust_target: x86_64-apple-darwin
             deployment_target: "13.0"
-            archive_name: jj-navi-darwin-x64.tar.gz
           - platform: linux-arm64
             runner: ubuntu-latest
             rust_target: aarch64-unknown-linux-gnu
-            archive_name: jj-navi-linux-arm64.tar.gz
+            deployment_target: ""
           - platform: linux-x64
             runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
-            archive_name: jj-navi-linux-x64.tar.gz
+            deployment_target: ""
           - platform: linux-arm64-musl
             runner: ubuntu-latest
             rust_target: aarch64-unknown-linux-musl
-            archive_name: jj-navi-linux-arm64-musl.tar.gz
+            deployment_target: ""
           - platform: linux-x64-musl
             runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-musl
-            archive_name: jj-navi-linux-x64-musl.tar.gz
+            deployment_target: ""
     runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.tag.outputs.release_ref }}
           persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -130,27 +169,75 @@ jobs:
             cargo build --locked --release --target "${{ matrix.rust_target }}"
           fi
 
-      - name: Package artifact
+      - name: Verify macOS deployment target
+        if: runner.os == 'macOS'
         run: |
-          mkdir -p "dist/${{ matrix.platform }}"
-          install -m 755 "target/${{ matrix.rust_target }}/release/navi" "dist/${{ matrix.platform }}/navi"
-          tar -C "dist/${{ matrix.platform }}" -czf "dist/${{ matrix.platform }}/${{ matrix.archive_name }}" navi
+          MIN_OS=$(otool -l "target/${{ matrix.rust_target }}/release/navi" | awk '
+            $1 == "cmd" && $2 == "LC_BUILD_VERSION" { in_build = 1; next }
+            in_build && $1 == "minos" { print $2; exit }
+          ')
+          if [ "$MIN_OS" != "${{ matrix.deployment_target }}" ]; then
+            echo "::error::Expected macOS deployment target ${{ matrix.deployment_target }}, got $MIN_OS"
+            exit 1
+          fi
+
+      - name: Stage artifact
+        run: |
+          ARTIFACT_DIR="$RUNNER_TEMP/build/${{ matrix.platform }}"
+          mkdir -p "$ARTIFACT_DIR"
+          install -m 755 "target/${{ matrix.rust_target }}/release/navi" "$ARTIFACT_DIR/navi"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}
-          path: dist/${{ matrix.platform }}
+          path: ${{ runner.temp }}/build/${{ matrix.platform }}
+          if-no-files-found: error
 
-  publish:
-    needs: build
+  publish-crates:
+    needs: tag
     runs-on: ubuntu-latest
     environment: release
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ needs.tag.outputs.release_ref }}
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          LOG_PATH="$RUNNER_TEMP/cargo-publish.log"
+          set +e
+          cargo publish --locked 2>&1 | tee "$LOG_PATH"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -qi "already uploaded\|already exists" "$LOG_PATH"; then
+            echo "crate version already published, skipping"
+            exit 0
+          fi
+          exit "$status"
+
+  publish-npm:
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.release_ref }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -159,82 +246,127 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Compute release metadata
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          if [[ "$VERSION" == *-* ]]; then
+            DIST_TAG="${VERSION#*-}"
+            DIST_TAG="${DIST_TAG%%.*}"
+          else
+            DIST_TAG="latest"
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+
+      - name: Stage npm packages
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          ARTIFACTS_DIR="$RUNNER_TEMP/artifacts"
+          NPM_STAGE_DIR="$RUNNER_TEMP/npm"
+          rm -rf "$NPM_STAGE_DIR"
+          mkdir -p "$NPM_STAGE_DIR"
+          cp -R npm/jj-navi "$NPM_STAGE_DIR/jj-navi"
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
+            PLATFORM_DIR="$NPM_STAGE_DIR/$platform"
+            node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION" "$PLATFORM_DIR"
+            install -m 755 "$ARTIFACTS_DIR/$platform/navi" "$PLATFORM_DIR/navi"
+          done
+
+      - name: Publish npm platform packages
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          NPM_STAGE_DIR="$RUNNER_TEMP/npm"
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
+            PACKAGE_NAME="jj-navi-$platform"
+            if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE_NAME@$VERSION already published, skipping"
+              continue
+            fi
+            npm publish "$NPM_STAGE_DIR/$platform" --tag "$DIST_TAG" --provenance --access public
+          done
+
+      - name: Publish npm wrapper package
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          if npm view "jj-navi@$VERSION" version >/dev/null 2>&1; then
+            echo "jj-navi@$VERSION already published, skipping"
+            exit 0
+          fi
+          npm publish "$RUNNER_TEMP/npm/jj-navi" --tag "$DIST_TAG" --provenance --access public
+
+  github-release:
+    needs: [tag, build, publish-crates, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.release_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist
+          path: ${{ runner.temp }}/artifacts
 
       - name: Compute release metadata
         run: |
+          VERSION="${{ needs.validate.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
-            DIST_TAG="${VERSION#*-}"
-            DIST_TAG="${DIST_TAG%%.*}"
             echo "PRERELEASE=true" >> "$GITHUB_ENV"
           else
-            DIST_TAG="latest"
             echo "PRERELEASE=false" >> "$GITHUB_ENV"
           fi
-          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
 
-      - name: Prepare npm platform packages
+      - name: Create release archives
         run: |
+          ARTIFACTS_DIR="$RUNNER_TEMP/artifacts"
+          STAGE_DIR="$RUNNER_TEMP/release-stage"
+          RELEASE_DIR="$RUNNER_TEMP/release"
+          rm -rf "$STAGE_DIR" "$RELEASE_DIR"
+          mkdir -p "$STAGE_DIR" "$RELEASE_DIR"
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
-            node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION"
-            install -m 755 "dist/$platform/navi" "npm/$platform/navi"
+            mkdir -p "$STAGE_DIR/$platform"
+            install -m 755 "$ARTIFACTS_DIR/$platform/navi" "$STAGE_DIR/$platform/navi"
+            tar -C "$STAGE_DIR/$platform" -czf "$RELEASE_DIR/jj-navi-$platform.tar.gz" navi
           done
 
-      - name: Publish crates.io
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Generate checksums
         run: |
-          set +e
-          cargo publish --locked 2>&1 | tee cargo-publish.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ] && ! grep -qi "already uploaded\|already exists" cargo-publish.log; then
-            exit "$status"
-          fi
-
-      - name: Publish npm platform packages
-        run: |
-          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
-            package_name="jj-navi-$platform"
-            if npm view "$package_name@$VERSION" version >/dev/null 2>&1; then
-              continue
-            fi
-            npm publish "npm/$platform" --tag "$DIST_TAG" --provenance --access public
-          done
-
-      - name: Publish npm wrapper package
-        run: |
-          if ! npm view "jj-navi@$VERSION" version >/dev/null 2>&1; then
-            npm publish npm/jj-navi --tag "$DIST_TAG" --provenance --access public
-          fi
-
-      - name: Build checksums
-        run: |
-          mkdir -p release-artifacts
-          cp dist/*/*.tar.gz release-artifacts/
-          (cd release-artifacts && sha256sum *.tar.gz > checksums-sha256.txt)
+          RELEASE_DIR="$RUNNER_TEMP/release"
+          (cd "$RELEASE_DIR" && sha256sum *.tar.gz > checksums-sha256.txt)
 
       - name: Write release notes
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "$VERSION" > release-artifacts/release-notes.md
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "${{ needs.validate.outputs.version }}" > "$RUNNER_TEMP/release/release-notes.md"
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          prerelease_args=()
-          if [ "$PRERELEASE" = "true" ]; then
-            prerelease_args+=(--prerelease)
+          TAG="${{ needs.validate.outputs.tag }}"
+          RELEASE_DIR="$RUNNER_TEMP/release"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RELEASE_DIR/release-notes.md"
+            gh release upload "$TAG" "$RELEASE_DIR"/*.tar.gz "$RELEASE_DIR/checksums-sha256.txt" --clobber
+            exit 0
           fi
-          gh release create "v$VERSION" \
-            --target "$GITHUB_SHA" \
-            --title "v$VERSION" \
-            --notes-file release-artifacts/release-notes.md \
-            "${prerelease_args[@]}" \
-            release-artifacts/*.tar.gz \
-            release-artifacts/checksums-sha256.txt
+          PRERELEASE_ARGS=()
+          if [ "$PRERELEASE" = "true" ]; then
+            PRERELEASE_ARGS+=(--prerelease)
+          fi
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file "$RELEASE_DIR/release-notes.md" \
+            "${PRERELEASE_ARGS[@]}" \
+            "$RELEASE_DIR"/*.tar.gz \
+            "$RELEASE_DIR/checksums-sha256.txt"
