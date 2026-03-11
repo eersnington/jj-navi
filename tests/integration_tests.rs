@@ -79,16 +79,23 @@ fn switch_create_with_revision_uses_requested_parent() {
 #[test]
 fn list_prints_workspace_table() {
     let repo = TempJjRepo::new();
-    repo.create_workspace("feature-auth");
-    repo.create_workspace("bugfix-api");
+    let feature_path = repo.create_workspace("feature-auth");
+    let bugfix_path = repo.create_workspace("bugfix-api");
+    repo.run(&["describe", "-m", "Default workspace"]);
+    TempJjRepo::run_at(&feature_path, &["describe", "-m", "Feature auth work"]);
+    TempJjRepo::run_at(&bugfix_path, &["describe", "-m", "Bugfix api work"]);
 
     command("navi")
         .current_dir(repo.path())
         .args(["list"])
         .assert()
         .success()
-        .stdout(predicate::str::starts_with("workspace"))
+        .stdout(predicate::str::starts_with("marker"))
+        .stdout(predicate::str::contains("@"))
         .stdout(predicate::str::contains("default"))
+        .stdout(predicate::str::contains("Feature auth work"))
+        .stdout(predicate::str::contains("Bugfix api work"))
+        .stdout(predicate::str::contains("commit"))
         .stdout(predicate::str::contains(format!(
             "../{}.feature-auth",
             repo.repo_name()
@@ -97,6 +104,21 @@ fn list_prints_workspace_table() {
             "../{}.bugfix-api",
             repo.repo_name()
         )));
+}
+
+#[test]
+fn list_survives_missing_workspace_directory() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+    let moved_path = feature_path.with_file_name(format!("{}.moved", feature_path.display()));
+    std::fs::rename(&feature_path, &moved_path).expect("move workspace dir");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-auth"));
 }
 
 #[test]

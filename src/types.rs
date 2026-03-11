@@ -42,7 +42,10 @@ impl fmt::Display for WorkspaceName {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WorkspaceEntry {
+pub struct WorkspaceListEntry {
+    pub is_current: bool,
     pub name: WorkspaceName,
     pub path: PathBuf,
+    pub commit_id: String,
+    pub message: String,
 }

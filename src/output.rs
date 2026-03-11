@@ -1,26 +1,53 @@
 use std::fmt::Write;
 
-use crate::types::WorkspaceEntry;
+use crate::types::WorkspaceListEntry;
 
 #[must_use]
-pub fn render_workspace_table(entries: &[WorkspaceEntry]) -> String {
-    let width = entries
+pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
+    let workspace_width = entries
         .iter()
         .map(|entry| entry.name.as_str().len())
         .chain(std::iter::once("workspace".len()))
         .max()
         .unwrap_or("workspace".len());
+    let path_width = entries
+        .iter()
+        .map(|entry| entry.path.display().to_string().len())
+        .chain(std::iter::once("path".len()))
+        .max()
+        .unwrap_or("path".len());
+    let commit_width = entries
+        .iter()
+        .map(|entry| entry.commit_id.len())
+        .chain(std::iter::once("commit".len()))
+        .max()
+        .unwrap_or("commit".len());
 
     let mut output = String::new();
-    writeln!(output, "{:<width$}  path", "workspace", width = width).expect("write table header");
+    writeln!(
+        output,
+        "marker  {:<workspace_width$}  {:<path_width$}  {:<commit_width$}  message",
+        "workspace",
+        "path",
+        "commit",
+        workspace_width = workspace_width,
+        path_width = path_width,
+        commit_width = commit_width
+    )
+    .expect("write table header");
 
     for entry in entries {
         writeln!(
             output,
-            "{:<width$}  {}",
+            "{:<6}  {:<workspace_width$}  {:<path_width$}  {:<commit_width$}  {}",
+            if entry.is_current { "@" } else { "" },
             entry.name,
             entry.path.display(),
-            width = width
+            entry.commit_id,
+            entry.message,
+            workspace_width = workspace_width,
+            path_width = path_width,
+            commit_width = commit_width
         )
         .expect("write table row");
     }
@@ -32,26 +59,34 @@ pub fn render_workspace_table(entries: &[WorkspaceEntry]) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::types::{WorkspaceEntry, WorkspaceName};
+    use crate::types::{WorkspaceListEntry, WorkspaceName};
 
     use super::render_workspace_table;
 
     #[test]
     fn renders_workspace_table() {
         let entries = vec![
-            WorkspaceEntry {
+            WorkspaceListEntry {
+                is_current: true,
                 name: WorkspaceName::new("default").expect("valid workspace"),
                 path: PathBuf::from("."),
+                commit_id: String::from("abc123"),
+                message: String::from("Current work"),
             },
-            WorkspaceEntry {
+            WorkspaceListEntry {
+                is_current: false,
                 name: WorkspaceName::new("feature-auth").expect("valid workspace"),
                 path: PathBuf::from("../repo.feature-auth"),
+                commit_id: String::from("def456"),
+                message: String::from("Feature auth work"),
             },
         ];
 
         let rendered = render_workspace_table(&entries);
 
+        assert!(rendered.contains("marker"));
         assert!(rendered.contains("workspace"));
-        assert!(rendered.contains("feature-auth"));
+        assert!(rendered.contains("commit"));
+        assert!(rendered.contains("Feature auth work"));
     }
 }
