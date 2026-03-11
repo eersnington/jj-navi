@@ -1,5 +1,5 @@
-use jj_navi::output::render_workspace_table;
-use jj_navi::types::{WorkspaceListEntry, WorkspaceName};
+use jj_navi::output::{DIRECTIVE_FILE_ENV_VAR, render_shell_init, render_workspace_table};
+use jj_navi::types::{ShellKind, WorkspaceListEntry, WorkspaceName};
 use std::path::PathBuf;
 
 #[test]
@@ -25,4 +25,13 @@ fn renders_table_with_header() {
     assert!(rendered.contains("../repo.feature-auth"));
     assert!(rendered.contains("abc123"));
     assert!(rendered.contains("Feature auth work"));
+}
+
+#[test]
+fn renders_zsh_shell_init() {
+    let rendered = render_shell_init("navi", ShellKind::Zsh);
+
+    assert!(rendered.contains("navi()"));
+    assert!(rendered.contains(DIRECTIVE_FILE_ENV_VAR));
+    assert!(rendered.contains("source \"$directive_file\""));
 }

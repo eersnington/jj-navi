@@ -29,6 +29,23 @@ enum Commands {
     Remove {
         workspace: Option<String>,
     },
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    Shell {
+        #[command(subcommand)]
+        command: ShellCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ShellCommands {
+    Init { shell: String },
 }
 
 enum AppError {
@@ -78,6 +95,11 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
         } => cli::run_switch(&path, &workspace, create, revision.as_deref())?,
         Commands::List => cli::run_list(&path)?,
         Commands::Remove { workspace } => cli::run_remove(&path, workspace.as_deref())?,
+        Commands::Config { command } => match command {
+            ConfigCommands::Shell { command } => match command {
+                ShellCommands::Init { shell } => cli::run_shell_init(bin_name, &shell)?,
+            },
+        },
     }
 
     Ok(())

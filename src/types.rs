@@ -102,6 +102,35 @@ impl Default for WorkspaceTemplate {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShellKind {
+    Bash,
+    Zsh,
+}
+
+impl ShellKind {
+    /// Parse a supported shell kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the shell is not supported.
+    pub fn new(value: &str) -> Result<Self> {
+        match value {
+            "bash" => Ok(Self::Bash),
+            "zsh" => Ok(Self::Zsh),
+            other => Err(Error::UnsupportedShell(other.to_owned())),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::Zsh => "zsh",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RepoConfig {
     pub workspace_template: WorkspaceTemplate,
