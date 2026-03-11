@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::output::write_cd_directive;
 use crate::repo::NaviWorkspace;
 use crate::types::WorkspaceName;
 use crate::{Error, Result};
@@ -27,6 +28,9 @@ pub fn run_switch(
         return Err(Error::WorkspaceDoesNotExist);
     };
 
-    println!("{}", repo.display_path_for_switch(&target_root).display());
+    let display_path = repo.display_path_for_switch(&target_root);
+    if !write_cd_directive(&display_path)? {
+        println!("{}", display_path.display());
+    }
     Ok(())
 }

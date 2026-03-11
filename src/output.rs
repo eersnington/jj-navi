@@ -1,8 +1,13 @@
 use std::fmt::Write;
+use std::fs::OpenOptions;
+use std::io::Write as _;
+use std::path::Path;
 
 use crate::types::{ShellKind, WorkspaceListEntry};
 
 pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
+pub const MANAGED_BLOCK_START: &str = "# >>> jj-navi shell init >>>";
+pub const MANAGED_BLOCK_END: &str = "# <<< jj-navi shell init <<<";
 
 #[must_use]
 pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
@@ -72,13 +77,55 @@ pub fn render_shell_init(command_name: &str, shell: ShellKind) -> String {
     )
 }
 
+#[must_use]
+pub fn render_shell_install_block(command_name: &str, shell: ShellKind) -> String {
+    format!(
+        "{MANAGED_BLOCK_START}\neval \"$(command {command_name} config shell init {shell})\"\n{MANAGED_BLOCK_END}\n",
+        command_name = command_name,
+        shell = shell.as_str(),
+    )
+}
+
+/// Write a shell-safe `cd` directive if shell integration is active.
+///
+/// Returns `true` if a directive was written.
+///
+/// # Errors
+///
+/// Returns an error if the directive file path is invalid or writing fails.
+pub fn write_cd_directive(path: &Path) -> crate::Result<bool> {
+    let Ok(directive_file) = std::env::var(DIRECTIVE_FILE_ENV_VAR) else {
+        return Ok(false);
+    };
+
+    if directive_file.trim().is_empty() {
+        return Ok(false);
+    }
+
+    let escaped_path = escape_shell_single_quotes(&path.display().to_string());
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(directive_file)?;
+    writeln!(file, "cd -- '{escaped_path}'")?;
+    Ok(true)
+}
+
+#[must_use]
+pub fn escape_shell_single_quotes(value: &str) -> String {
+    value.replace('\'', "'\\''")
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use crate::types::{ShellKind, WorkspaceListEntry, WorkspaceName};
 
-    use super::{DIRECTIVE_FILE_ENV_VAR, render_shell_init, render_workspace_table};
+    use super::{
+        DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
+        render_shell_init, render_shell_install_block, render_workspace_table,
+    };
 
     #[test]
     fn renders_workspace_table() {
@@ -114,5 +161,22 @@ mod tests {
         assert!(rendered.contains("navi()"));
         assert!(rendered.contains(DIRECTIVE_FILE_ENV_VAR));
         assert!(rendered.contains("command navi \"$@\""));
+    }
+
+    #[test]
+    fn renders_shell_install_block() {
+        let rendered = render_shell_install_block("navi", ShellKind::Zsh);
+
+        assert!(rendered.contains(MANAGED_BLOCK_START));
+        assert!(rendered.contains("eval \"$(command navi config shell init zsh)\""));
+        assert!(rendered.contains(MANAGED_BLOCK_END));
+    }
+
+    #[test]
+    fn escapes_single_quotes_for_shell_directives() {
+        assert_eq!(
+            escape_shell_single_quotes("../space dir/feature-auth's"),
+            "../space dir/feature-auth'\\''s"
+        );
     }
 }
