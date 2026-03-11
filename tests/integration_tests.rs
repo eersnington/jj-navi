@@ -100,6 +100,52 @@ fn list_prints_workspace_table() {
 }
 
 #[test]
+fn remove_named_workspace_forgets_workspace_and_keeps_directory() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["remove", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("forgot workspace 'feature-auth'"));
+
+    assert!(feature_path.is_dir());
+    assert!(!repo.run(&["workspace", "list"]).contains("feature-auth"));
+}
+
+#[test]
+fn remove_without_name_forgets_current_workspace() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["remove"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("forgot workspace 'feature-auth'"));
+
+    assert!(feature_path.is_dir());
+    assert!(!repo.run(&["workspace", "list"]).contains("feature-auth"));
+}
+
+#[test]
+fn remove_missing_workspace_fails_with_useful_error() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["remove", "does-not-exist"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: workspace 'does-not-exist' does not exist",
+        ));
+}
+
+#[test]
 fn nested_workspace_discovery_works_from_secondary_workspace() {
     let repo = TempJjRepo::new();
     let feature_path = repo.create_workspace("feature-auth");

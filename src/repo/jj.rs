@@ -53,6 +53,15 @@ impl<'a> JjClient<'a> {
             .collect()
     }
 
+    pub(crate) fn workspace_forget(&self, workspace: &WorkspaceName) -> Result<()> {
+        self.run(&[
+            String::from("workspace"),
+            String::from("forget"),
+            workspace.as_str().to_owned(),
+        ])
+        .map(|_| ())
+    }
+
     pub(crate) fn workspace_add(
         &self,
         workspace: &WorkspaceName,

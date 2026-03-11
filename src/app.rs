@@ -26,6 +26,9 @@ enum Commands {
         workspace: String,
     },
     List,
+    Remove {
+        workspace: Option<String>,
+    },
 }
 
 enum AppError {
@@ -74,6 +77,7 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
             workspace,
         } => cli::run_switch(&path, &workspace, create, revision.as_deref())?,
         Commands::List => cli::run_list(&path)?,
+        Commands::Remove { workspace } => cli::run_remove(&path, workspace.as_deref())?,
     }
 
     Ok(())

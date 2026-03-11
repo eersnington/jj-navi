@@ -97,6 +97,21 @@ impl NaviWorkspace {
         Ok(self.planned_workspace_root(workspace)?.is_dir())
     }
 
+    /// Forget a workspace via `jj workspace forget`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the workspace does not exist or if `jj` returns an
+    /// error.
+    pub fn forget_workspace(&self, workspace: Option<&WorkspaceName>) -> Result<WorkspaceName> {
+        let workspace = self.resolve_workspace_forget_target(workspace)?;
+        let jj = JjClient::new(&self.workspace_root);
+
+        jj.workspace_forget(&workspace)?;
+
+        Ok(workspace)
+    }
+
     /// Create a workspace via `jj workspace add`.
     ///
     /// # Errors
@@ -143,6 +158,27 @@ impl NaviWorkspace {
         };
 
         WorkspaceEntry { name, path }
+    }
+
+    fn resolve_workspace_forget_target(
+        &self,
+        workspace: Option<&WorkspaceName>,
+    ) -> Result<WorkspaceName> {
+        let Some(workspace) = workspace else {
+            return Ok(self.current_workspace.clone());
+        };
+
+        let jj = JjClient::new(&self.workspace_root);
+        let exists = jj
+            .list_workspaces()?
+            .into_iter()
+            .any(|entry| entry.name == *workspace);
+
+        if exists {
+            Ok(workspace.clone())
+        } else {
+            Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
+        }
     }
 }
 
