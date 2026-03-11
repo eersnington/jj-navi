@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
-use crate::types::{WorkspaceListEntry, WorkspaceName};
+use crate::types::{RepoConfig, WorkspaceListEntry, WorkspaceName};
 
+use super::config::{ensure_repo_config, load_repo_config};
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
 use super::jj::JjClient;
 
@@ -14,6 +15,7 @@ pub struct NaviWorkspace {
     workspace_root: PathBuf,
     repo_storage_path: PathBuf,
     current_workspace: WorkspaceName,
+    config: RepoConfig,
     repo_name: String,
 }
 
@@ -28,6 +30,7 @@ impl NaviWorkspace {
         let cwd = path.canonicalize()?;
         let workspace_root = find_workspace_root(&cwd)?;
         let repo_storage_path = resolve_repo_storage_path(&workspace_root)?;
+        let config = load_repo_config(&repo_storage_path)?;
         let jj = JjClient::new(&workspace_root);
         let current_workspace = jj.current_workspace_name()?;
         let repo_name = derive_repo_name(&workspace_root, &current_workspace)?;
@@ -37,6 +40,7 @@ impl NaviWorkspace {
             workspace_root,
             repo_storage_path,
             current_workspace,
+            config,
             repo_name,
         })
     }
@@ -66,20 +70,15 @@ impl NaviWorkspace {
             return Ok(self.workspace_root.clone());
         }
 
-        let parent = self
-            .workspace_root
-            .parent()
-            .ok_or_else(|| Error::WorkspaceRootHasNoParent(self.workspace_root.clone()))?;
+        let path = self
+            .config
+            .workspace_template
+            .render(&self.repo_name, workspace);
 
-        Ok(parent.join(format!("{}.{}", self.repo_name, workspace.as_str())))
-    }
-
-    #[must_use]
-    pub fn planned_workspace_display(&self, workspace: &WorkspaceName) -> PathBuf {
-        if workspace == &self.current_workspace {
-            PathBuf::from(".")
+        if path.is_absolute() {
+            Ok(path)
         } else {
-            PathBuf::from(format!("../{}.{}", self.repo_name, workspace.as_str()))
+            Ok(self.workspace_root.join(path))
         }
     }
 
@@ -125,6 +124,8 @@ impl NaviWorkspace {
         let target_root = self.planned_workspace_root(workspace)?;
         let jj = JjClient::new(&self.workspace_root);
 
+        ensure_repo_config(&self.repo_storage_path, &self.config)?;
+
         jj.workspace_add(workspace, &target_root, revision)?;
 
         Ok(target_root)
@@ -156,7 +157,7 @@ impl NaviWorkspace {
         } else {
             let planned_root = self
                 .planned_workspace_root(&entry.name)
-                .unwrap_or_else(|_| self.planned_workspace_display(&entry.name));
+                .unwrap_or_else(|_| PathBuf::from(entry.name.as_str()));
             self.display_path_for_switch(&planned_root)
         };
 

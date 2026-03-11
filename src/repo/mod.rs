@@ -1,3 +1,4 @@
+mod config;
 mod discovery;
 mod jj;
 mod workspace;
