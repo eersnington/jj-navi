@@ -1,4 +1,7 @@
-use jj_navi::output::{DIRECTIVE_FILE_ENV_VAR, render_shell_init, render_workspace_table};
+use jj_navi::output::{
+    DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, render_shell_init,
+    render_shell_install_block, render_workspace_table,
+};
 use jj_navi::types::{ShellKind, WorkspaceListEntry, WorkspaceName};
 use std::path::PathBuf;
 
@@ -34,4 +37,13 @@ fn renders_zsh_shell_init() {
     assert!(rendered.contains("navi()"));
     assert!(rendered.contains(DIRECTIVE_FILE_ENV_VAR));
     assert!(rendered.contains("source \"$directive_file\""));
+}
+
+#[test]
+fn renders_shell_install_block() {
+    let rendered = render_shell_install_block("navi", ShellKind::Bash);
+
+    assert!(rendered.contains(MANAGED_BLOCK_START));
+    assert!(rendered.contains(MANAGED_BLOCK_END));
+    assert!(rendered.contains("eval \"$(command navi config shell init bash)\""));
 }

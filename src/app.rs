@@ -45,7 +45,13 @@ enum ConfigCommands {
 
 #[derive(Subcommand)]
 enum ShellCommands {
-    Init { shell: String },
+    Init {
+        shell: String,
+    },
+    Install {
+        #[arg(long)]
+        shell: Option<String>,
+    },
 }
 
 enum AppError {
@@ -98,6 +104,9 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {
                 ShellCommands::Init { shell } => cli::run_shell_init(bin_name, &shell)?,
+                ShellCommands::Install { shell } => {
+                    cli::run_shell_install(bin_name, shell.as_deref())?;
+                }
             },
         },
     }

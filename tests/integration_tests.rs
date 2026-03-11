@@ -170,6 +170,107 @@ fn config_shell_init_rejects_unsupported_shell() {
 }
 
 #[test]
+fn config_shell_install_creates_bashrc_managed_block() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let bashrc = home.path().join(".bashrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .success();
+
+    let contents = std::fs::read_to_string(bashrc).expect("read bashrc");
+    assert_eq!(contents.matches("# >>> jj-navi shell init >>>").count(), 1);
+    assert!(contents.contains("eval \"$(command navi config shell init bash)\""));
+}
+
+#[test]
+fn config_shell_install_creates_zshrc_managed_block() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let zshrc = home.path().join(".zshrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "zsh"])
+        .assert()
+        .success();
+
+    let contents = std::fs::read_to_string(zshrc).expect("read zshrc");
+    assert_eq!(contents.matches("# >>> jj-navi shell init >>>").count(), 1);
+    assert!(contents.contains("eval \"$(command navi config shell init zsh)\""));
+}
+
+#[test]
+fn config_shell_install_updates_managed_block_in_place() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let bashrc = home.path().join(".bashrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .success();
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .success();
+
+    let contents = std::fs::read_to_string(bashrc).expect("read bashrc");
+    assert_eq!(contents.matches("# >>> jj-navi shell init >>>").count(), 1);
+}
+
+#[test]
+fn switch_writes_cd_directive_when_shell_integration_is_active() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    let directive_dir = tempfile::TempDir::new().expect("temp directive dir");
+    let directive_file = directive_dir.path().join("navi-directives.sh");
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("NAVI_DIRECTIVE_FILE", &directive_file)
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let contents = std::fs::read_to_string(directive_file).expect("read directive file");
+    assert_eq!(
+        contents,
+        format!("cd -- '../{}.feature-auth'\n", repo.repo_name())
+    );
+}
+
+#[test]
+fn switch_writes_shell_escaped_directive_for_special_paths() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_config("workspace_template = \"../{repo}.space {workspace}'s\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let directive_dir = tempfile::TempDir::new().expect("temp directive dir");
+    let directive_file = directive_dir.path().join("navi-directives.sh");
+    command("navi")
+        .current_dir(repo.path())
+        .env("NAVI_DIRECTIVE_FILE", &directive_file)
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success();
+
+    let contents = std::fs::read_to_string(directive_file).expect("read directive file");
+    assert_eq!(
+        contents,
+        format!("cd -- '../{}.space feature-auth'\\''s'\n", repo.repo_name())
+    );
+}
+
+#[test]
 fn remove_cleans_up_workspace_metadata() {
     let repo = TempJjRepo::new();
 

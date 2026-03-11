@@ -37,6 +37,15 @@ pub enum Error {
     #[error("error: unsupported shell '{0}'")]
     UnsupportedShell(String),
 
+    #[error("error: unable to detect shell from $SHELL")]
+    ShellDetection,
+
+    #[error("error: $HOME is not set")]
+    HomeDirectory,
+
+    #[error("error: invalid shell rc file at {0}")]
+    InvalidShellRcFile(PathBuf),
+
     #[error("error: jj command failed: {command}\n{stderr}")]
     JjCommandFailed { command: String, stderr: String },
 

@@ -122,11 +122,33 @@ impl ShellKind {
         }
     }
 
+    /// Detect a supported shell from the `SHELL` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `SHELL` is missing or unsupported.
+    pub fn detect() -> Result<Self> {
+        let shell = std::env::var("SHELL").map_err(|_| Error::ShellDetection)?;
+        let shell_name = std::path::Path::new(&shell)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or(Error::ShellDetection)?;
+        Self::new(shell_name)
+    }
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
             Self::Zsh => "zsh",
+        }
+    }
+
+    #[must_use]
+    pub fn rc_file_name(self) -> &'static str {
+        match self {
+            Self::Bash => ".bashrc",
+            Self::Zsh => ".zshrc",
         }
     }
 }
