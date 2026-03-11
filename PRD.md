@@ -381,19 +381,13 @@ jj workspace add --name <workspace> -r <revset> <path>
 navi list
 ```
 
-v0 output:
-
-- `workspace`
-- `path`
-
-Target later output:
+v1 output:
 
 - marker
 - workspace
 - path
 - commit
 - message
-- status
 
 Illustrative later output:
 
@@ -418,15 +412,16 @@ Base behavior:
 jj workspace forget <workspace>
 ```
 
-Planned flags:
+Deferred flags:
 
 - `--delete-dir`
 - `--force`
 
-Safety rules:
+Current v1 behavior:
 
-- refuse deletion if the directory appears unsafe
-- require `--force` for destructive removal when appropriate
+- forgets the workspace via `jj workspace forget`
+- keeps the workspace directory on disk
+- allows omitting `<workspace>` to target the current workspace
 
 ### `config shell install`
 
@@ -437,6 +432,19 @@ navi config shell install
 Goal:
 
 - make `switch` actually change directories in supported shells
+
+Related init command:
+
+```sh
+navi config shell init <bash|zsh>
+```
+
+Current v1 behavior:
+
+- `config shell init` prints a shell wrapper that sets `NAVI_DIRECTIVE_FILE`
+- `config shell install` installs one managed block into the shell rc file
+- `switch` writes shell-safe `cd` directives when `NAVI_DIRECTIVE_FILE` is set
+- `switch` still prints the target path when shell integration is not active
 
 Planned supported shells:
 
@@ -597,7 +605,7 @@ Non-goals:
 
 Current target version:
 
-- `0.0.1-alpha.1`
+- `0.0.1-alpha.2`
 
 Target `jj` baseline:
 
@@ -605,7 +613,7 @@ Target `jj` baseline:
 
 Current implemented scope:
 
-- this repo currently implements v0
+- this repo currently implements v1
 
 Implemented today:
 
@@ -619,17 +627,23 @@ Implemented today:
 - `switch`
 - `switch --create`
 - `switch --create --revision`
-- minimal `list`
+- `remove`
+- richer `list` with marker/path/commit/message
+- repo-scoped config at `.jj/repo/navi/config.toml`
+- workspace metadata at `.jj/repo/navi/workspaces.toml`
+- `config shell init` for bash and zsh
+- `config shell install` for bash and zsh
+- shell directive output for `switch`
 - real `jj` integration tests
 - npm scaffold with matching version
 - GitHub test and release scaffolding
 
-Known v0 limits:
+Known current limits:
 
-- no shell integration yet
-- no `remove` yet
-- no metadata/config/hooks yet
-- `list` currently renders deterministic template-derived paths for non-current workspaces
+- `remove` is forget-only by default; no `--delete-dir` yet
+- no hooks yet
+- no fish shell support yet
+- no cross-workspace dirty status yet
 
 Current code note:
 
@@ -645,8 +659,14 @@ Current tests cover:
 - switching to an existing workspace
 - creating a workspace
 - creating with explicit revision
-- listing workspaces
+- repo-scoped config creation and parse failures
+- metadata write, cleanup, and malformed-state failures
+- listing workspaces with marker/path/commit/message
 - nested-dir discovery from secondary workspaces
+- safe remove flows
+- shell init rendering
+- shell install managed block updates
+- switch directive emission and shell escaping
 - `nv` shorthand behavior
 - `navi --help` naming
 - `nv --help` naming

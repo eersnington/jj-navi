@@ -12,7 +12,10 @@ Core idea:
 
 - create workspaces through `switch --create`
 - switch to existing workspaces quickly
-- list known workspaces
+- remove workspaces safely with forget-only defaults
+- list workspaces with current marker, path, commit, and message
+- install bash and zsh shell integration so `switch` can change directories directly
+- keep repo-scoped config and navi metadata in shared `.jj/repo/navi/`
 - make multi-workspace flows easier to reason about
 
 ## Who it is for
@@ -61,12 +64,15 @@ Prebuilt npm binaries currently target:
 - `navi switch --create <workspace>`
 - `navi switch --create <workspace> --revision <revset>`
 - `navi list`
+- `navi remove [workspace]`
+- `navi config shell init <bash|zsh>`
+- `navi config shell install [--shell <bash|zsh>]`
 
 The same commands also work with `nv`.
 
 ## Usage
 
-Current v0 flow, until shell integration lands:
+Without shell integration:
 
 ```sh
 navi switch --create feature-auth
@@ -74,21 +80,42 @@ cd "$(navi switch feature-auth)"
 navi list
 ```
 
-`navi switch ...` currently prints the target path. The `$(...)` part passes that path into `cd`.
+`navi switch ...` prints the target path unless shell integration is active.
 
-Goal state in a later version:
+With shell integration installed:
 
 ```sh
+navi config shell install --shell zsh
+source ~/.zshrc
+
+navi switch --create feature-auth
 navi switch feature-auth
+navi remove feature-auth
 ```
 
-and your shell changes directory directly.
+When shell integration is active, `navi switch ...` writes a `cd` directive for your shell wrapper instead of printing the path.
+
+`navi list` shows:
+
+- current marker
+- workspace name
+- navigation path
+- working-copy commit short id
+- first-line commit message
+
+Repo-scoped config and metadata live under:
+
+```text
+.jj/repo/navi/config.toml
+.jj/repo/navi/workspaces.toml
+```
 
 ## Notes
 
-- current scope is v0
-- shell integration is not implemented yet, so `switch` prints the target path for now
-- future versions are planned to add shell integration, remove, metadata, and richer workspace visibility
+- current scope is v1 core workspace UX
+- `remove` is forget-only by default; it does not delete workspace directories
+- bash and zsh shell integration are supported; fish is not yet supported
+- cross-workspace dirty status, hooks, `doctor`, and `prune` remain future work
 
 ## Release Fragments
 
