@@ -70,12 +70,14 @@ jobs:
       matrix:
         include:
           - platform: darwin-arm64
-            runner: macos-14
+            runner: macos-15
             rust_target: aarch64-apple-darwin
+            deployment_target: "13.0"
             archive_name: jj-navi-darwin-arm64.tar.gz
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
             rust_target: x86_64-apple-darwin
+            deployment_target: "13.0"
             archive_name: jj-navi-darwin-x64.tar.gz
           - platform: linux-arm64
             runner: ubuntu-latest
@@ -119,6 +121,8 @@ jobs:
         run: rustup target add "${{ matrix.rust_target }}"
 
       - name: Build binary
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
             cross build --locked --release --target "${{ matrix.rust_target }}"
@@ -129,7 +133,7 @@ jobs:
       - name: Package artifact
         run: |
           mkdir -p "dist/${{ matrix.platform }}"
-          cp "target/${{ matrix.rust_target }}/release/navi" "dist/${{ matrix.platform }}/navi"
+          install -m 755 "target/${{ matrix.rust_target }}/release/navi" "dist/${{ matrix.platform }}/navi"
           tar -C "dist/${{ matrix.platform }}" -czf "dist/${{ matrix.platform }}/${{ matrix.archive_name }}" navi
 
       - name: Upload artifact
@@ -179,7 +183,7 @@ jobs:
         run: |
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION"
-            cp "dist/$platform/navi" "npm/$platform/navi"
+            install -m 755 "dist/$platform/navi" "npm/$platform/navi"
           done
 
       - name: Publish crates.io
