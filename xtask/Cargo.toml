@@ -1,0 +1,15 @@
+[package]
+name = "navi-release"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "navi-release"
+path = "src/main.rs"
+
+[dependencies]
+semver = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "macros"] }
