@@ -31,6 +31,9 @@ pub enum Error {
     #[error("error: invalid repo config in {path}\n{message}")]
     InvalidRepoConfig { path: PathBuf, message: String },
 
+    #[error("error: invalid workspace metadata in {path}\n{message}")]
+    InvalidWorkspaceMetadata { path: PathBuf, message: String },
+
     #[error("error: jj command failed: {command}\n{stderr}")]
     JjCommandFailed { command: String, stderr: String },
 

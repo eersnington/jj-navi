@@ -38,7 +38,7 @@ pub(crate) fn load_repo_config(repo_storage_path: &Path) -> Result<RepoConfig> {
 }
 
 pub(crate) fn ensure_repo_config(repo_storage_path: &Path, config: &RepoConfig) -> Result<PathBuf> {
-    let navi_dir = repo_storage_path.join(NAVI_DIR);
+    let navi_dir = navi_dir_path(repo_storage_path);
     fs::create_dir_all(&navi_dir)?;
 
     let path = repo_config_path(repo_storage_path);
@@ -56,6 +56,10 @@ pub(crate) fn ensure_repo_config(repo_storage_path: &Path, config: &RepoConfig) 
     Ok(path)
 }
 
+pub(crate) fn navi_dir_path(repo_storage_path: &Path) -> PathBuf {
+    repo_storage_path.join(NAVI_DIR)
+}
+
 pub(crate) fn repo_config_path(repo_storage_path: &Path) -> PathBuf {
-    repo_storage_path.join(NAVI_DIR).join(CONFIG_FILE)
+    navi_dir_path(repo_storage_path).join(CONFIG_FILE)
 }
