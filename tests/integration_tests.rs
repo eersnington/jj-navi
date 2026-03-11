@@ -110,7 +110,10 @@ fn list_prints_workspace_table() {
 fn list_survives_missing_workspace_directory() {
     let repo = TempJjRepo::new();
     let feature_path = repo.create_workspace("feature-auth");
-    let moved_path = feature_path.with_file_name(format!("{}.moved", feature_path.display()));
+    let feature_name = feature_path.file_name().expect("workspace dir name");
+    let mut moved_name = feature_name.to_os_string();
+    moved_name.push(".moved");
+    let moved_path = feature_path.with_file_name(moved_name);
     std::fs::rename(&feature_path, &moved_path).expect("move workspace dir");
 
     command("navi")
