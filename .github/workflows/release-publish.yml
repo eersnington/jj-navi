@@ -48,7 +48,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Validate release files
-        run: node scripts/release/validate.mjs "$VERSION"
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "$VERSION"
 
       - name: Ensure tag does not exist
         run: |
@@ -214,7 +214,7 @@ jobs:
           (cd release-artifacts && sha256sum *.tar.gz > checksums-sha256.txt)
 
       - name: Write release notes
-        run: node scripts/release/notes.mjs "$VERSION" > release-artifacts/release-notes.md
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "$VERSION" > release-artifacts/release-notes.md
 
       - name: Create GitHub release
         env:

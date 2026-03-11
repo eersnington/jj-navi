@@ -33,22 +33,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare release files
-        run: node scripts/release/plan.mjs "${{ inputs.version }}"
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "${{ inputs.version }}"
 
       - name: Refresh Cargo.lock
         run: cargo check --quiet
 
       - name: Validate release files
-        run: node scripts/release/validate.mjs "${{ inputs.version }}"
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ inputs.version }}"
 
       - name: Create release PR
         uses: peter-evans/create-pull-request@v7

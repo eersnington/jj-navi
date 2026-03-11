@@ -94,15 +94,29 @@ and your shell changes directory directly.
 
 Every user-facing PR should add one fragment in `.release/`.
 
+Install the maintainer helper once:
+
+```sh
+cargo install --path xtask --force
+```
+
+If `navi-release` is not found, add Cargo's bin dir to your shell path:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
 Create one with:
 
 ```sh
-./scripts/release/new "fix nested workspace discovery" -s cli
+navi-release "fix nested workspace discovery" -s cli
 ```
 
 The fragment body becomes changelog and GitHub release notes.
 
 Default bump is `patch`, so only pass `minor` or `major` when needed.
+
+Run `navi-release` with no args for an interactive fragment wizard.
 
 ## Releasing
 

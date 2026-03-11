@@ -2,16 +2,29 @@
 
 Add one fragment for every user-facing change.
 
+Install the maintainer helper once:
+
+```sh
+cargo install --path xtask --force
+```
+
+If `navi-release` is not found, add Cargo's bin dir to your shell path:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
 Create one with:
 
 ```sh
-./scripts/release/new "fix nested workspace discovery" -s cli
+navi-release "fix nested workspace discovery" -s cli
 ```
 
 Defaults:
 
 - no bump arg means `patch`
 - pass `minor` or `major` only when needed
+- run `navi-release` with no args for an interactive wizard
 
 Fragment format:
 
