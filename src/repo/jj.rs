@@ -53,7 +53,6 @@ impl<'a> JjClient<'a> {
             .collect()
     }
 
-<<<<<<< jj-navi-v1/functional-1
     pub(crate) fn workspace_forget(&self, workspace: &WorkspaceName) -> Result<()> {
         self.run(&[
             OsString::from("workspace"),
@@ -63,8 +62,6 @@ impl<'a> JjClient<'a> {
         .map(|_| ())
     }
 
-=======
->>>>>>> main
     pub(crate) fn workspace_add(
         &self,
         workspace: &WorkspaceName,
