@@ -85,12 +85,9 @@ impl NaviWorkspace {
     }
 
     /// Check if the target workspace directory already exists.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if workspace discovery failed while opening the repo.
-    pub fn workspace_exists(&self, workspace: &WorkspaceName) -> Result<bool> {
-        Ok(self.planned_workspace_root(workspace).is_dir())
+    #[must_use]
+    pub fn workspace_exists(&self, workspace: &WorkspaceName) -> bool {
+        self.planned_workspace_root(workspace).is_dir()
     }
 
     /// Forget a workspace via `jj workspace forget`.
