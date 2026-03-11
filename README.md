@@ -27,7 +27,7 @@ Core idea:
 ## Install
 
 ```sh
-cargo install jj-navi --version 0.0.1-alpha.1
+cargo install jj-navi --version 0.0.1-alpha.2
 ```
 
 or
