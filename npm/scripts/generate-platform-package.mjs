@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const platforms = JSON.parse(readFileSync(join(__dirname, "platforms.json"), "utf8"));
-const [, , platform, version] = process.argv;
+const [, , platform, version, outputDir] = process.argv;
 
 if (!platform || !version) {
-  console.error("Usage: node generate-platform-package.mjs <platform> <version>");
+  console.error("Usage: node generate-platform-package.mjs <platform> <version> [output-dir]");
   process.exit(1);
 }
 
@@ -37,7 +37,7 @@ if (config.libc) {
   packageJson.libc = [config.libc];
 }
 
-const platformDir = join(__dirname, "..", platform);
+const platformDir = outputDir ? resolve(outputDir) : join(__dirname, "..", platform);
 mkdirSync(platformDir, { recursive: true });
 
 writeFileSync(
