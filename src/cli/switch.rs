@@ -19,7 +19,7 @@ pub fn run_switch(
     let workspace = WorkspaceName::new(workspace.to_owned())?;
     let repo = NaviWorkspace::open(path)?;
 
-    let target_root = if repo.workspace_exists(&workspace)? {
+    let target_root = if repo.workspace_exists(&workspace) {
         repo.planned_workspace_root(&workspace)
     } else if create {
         repo.create_workspace(&workspace, revision)?
