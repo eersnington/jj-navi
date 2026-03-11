@@ -119,7 +119,7 @@ jobs:
             rust_target: aarch64-apple-darwin
             deployment_target: "13.0"
           - platform: darwin-x64
-            runner: macos-15-intel
+            runner: macos-13
             rust_target: x86_64-apple-darwin
             deployment_target: "13.0"
           - platform: linux-arm64
@@ -227,7 +227,7 @@ jobs:
           exit "$status"
 
   publish-npm:
-    needs: [tag, build]
+    needs: [validate, tag, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -270,6 +270,17 @@ jobs:
           rm -rf "$NPM_STAGE_DIR"
           mkdir -p "$NPM_STAGE_DIR"
           cp -R npm/jj-navi "$NPM_STAGE_DIR/jj-navi"
+          PKG_PATH="$NPM_STAGE_DIR/jj-navi/package.json" \
+          RELEASE_VERSION="$VERSION" \
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync(process.env.PKG_PATH, 'utf8'));
+            pkg.version = process.env.RELEASE_VERSION;
+            for (const key of Object.keys(pkg.optionalDependencies || {})) {
+              pkg.optionalDependencies[key] = process.env.RELEASE_VERSION;
+            }
+            fs.writeFileSync(process.env.PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
+          "
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             PLATFORM_DIR="$NPM_STAGE_DIR/$platform"
             node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION" "$PLATFORM_DIR"
@@ -277,6 +288,8 @@ jobs:
           done
 
       - name: Publish npm platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${{ needs.validate.outputs.version }}"
           NPM_STAGE_DIR="$RUNNER_TEMP/npm"
@@ -290,6 +303,8 @@ jobs:
           done
 
       - name: Publish npm wrapper package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${{ needs.validate.outputs.version }}"
           if npm view "jj-navi@$VERSION" version >/dev/null 2>&1; then
@@ -299,7 +314,7 @@ jobs:
           npm publish "$RUNNER_TEMP/npm/jj-navi" --tag "$DIST_TAG" --provenance --access public
 
   github-release:
-    needs: [tag, build, publish-crates, publish-npm]
+    needs: [validate, tag, build, publish-crates, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
