@@ -47,6 +47,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install jj
+        run: cargo install --locked jj-cli
+
       - name: Validate release files
         run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "$VERSION"
 
