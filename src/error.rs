@@ -19,6 +19,9 @@ pub enum Error {
     #[error("error: workspace does not exist\nhint: use --create")]
     WorkspaceDoesNotExist,
 
+    #[error("error: workspace '{0}' does not exist")]
+    WorkspaceNotFound(String),
+
     #[error("error: invalid repo pointer in {0}")]
     InvalidRepoPointer(PathBuf),
 
