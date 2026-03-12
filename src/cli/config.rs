@@ -34,7 +34,11 @@ pub fn run_shell_install(command_name: &str, shell: Option<&str>) -> Result<()> 
     };
     let rc_path = shell_rc_path(shell)?;
     let block = render_shell_install_block(command_name, shell);
-    let existing = fs::read_to_string(&rc_path).unwrap_or_default();
+    let existing = match fs::read_to_string(&rc_path) {
+        Ok(existing) => existing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
     let updated = upsert_managed_block(&existing, &block, &rc_path)?;
 
     if let Some(parent) = rc_path.parent() {
