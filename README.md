@@ -1,5 +1,7 @@
 # jj-navi
 
+<img width="788" height="640" alt="jj-navi" src="https://github.com/user-attachments/assets/88e8b46e-9a76-416b-9f76-b4480d6964e7" />
+
 Navigation-first workspace UX for [Jujutsu](https://jj-vcs.github.io/jj/latest/).
 
 Create, switch, list, and remove Jujutsu workspaces with predictable paths and optional shell integration for parallel human and AI workflows.
@@ -94,7 +96,7 @@ Default workspace path template:
 
 - `remove` is forget-only by default; it does not delete workspace directories
 - supported shells today: `bash`, `zsh`
-- fish, hooks, `doctor`, `prune`, and cross-workspace dirty status are future work
+- fish support, hooks, `doctor`, `prune`, and cross-workspace dirty status are planned in roadmap
 
 ## Maintainer notes
 
@@ -106,6 +108,8 @@ This project was inspired by:
 
 - [Worktrunk](https://github.com/max-sixty/worktrunk)
 - [jj-ryu](https://github.com/dmmulroy/jj-ryu)
+
+- [BoTW Link pixel art credits] (https://www.reddit.com/r/zelda/comments/piy10r/botw_oc_hero_of_the_wild_pixel_art/)
 
 ## License
 
