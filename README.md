@@ -24,7 +24,7 @@ repo/
 npm install -g jj-navi
 
 # cargo
-cargo install jj-navi --version 0.0.1-alpha.3
+cargo install jj-navi --version 0.0.1-alpha.4
 ```
 
 Binary names:
@@ -106,10 +106,11 @@ Release and `xtask` docs live in `xtask/README.md`.
 
 This project was inspired by:
 
-- [Worktrunk](https://github.com/max-sixty/worktrunk)
-- [jj-ryu](https://github.com/dmmulroy/jj-ryu)
+- [Worktrunk](https://github.com/max-sixty/worktrunk) - Worktrunk is a CLI for Git worktree management, designed for parallel AI agent workflows.
+- [jj-ryu](https://github.com/dmmulroy/jj-ryu) - Stacked PRs for Jujutsu. Push bookmark stacks to GitHub and GitLab as chained pull requests.
 
-- [BoTW Link pixel art credits] (https://www.reddit.com/r/zelda/comments/piy10r/botw_oc_hero_of_the_wild_pixel_art/)
+## Art Credits
+- [BoTW Link Pixel Art](https://www.reddit.com/r/zelda/comments/piy10r/botw_oc_hero_of_the_wild_pixel_art/)
 
 ## License
 
