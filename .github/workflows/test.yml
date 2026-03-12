@@ -21,6 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -53,5 +58,19 @@ jobs:
       - name: Validate release files
         run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate
 
+      - name: Check npm wrapper README sync
+        run: |
+          OUTPUT_PATH="$RUNNER_TEMP/npm-wrapper-readme.md"
+          node npm/scripts/sync-wrapper-readme.mjs "$OUTPUT_PATH"
+          cmp README.md "$OUTPUT_PATH"
+          cmp README.md npm/jj-navi/README.md
+
       - name: Smoke test fragment command
         run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- "smoke test fragment" -s ci --dry-run
+
+      - name: Smoke test npm platform package generation
+        run: |
+          OUTPUT_DIR="$RUNNER_TEMP/npm-platform"
+          node npm/scripts/generate-platform-package.mjs linux-x64 0.0.0-test "$OUTPUT_DIR"
+          test -f "$OUTPUT_DIR/package.json"
+          test -f "$OUTPUT_DIR/README.md"
