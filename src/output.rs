@@ -102,7 +102,10 @@ pub fn write_cd_directive(path: &Path) -> crate::Result<bool> {
         return Ok(false);
     }
 
-    let escaped_path = escape_shell_single_quotes(&path.display().to_string());
+    let escaped_path = escape_shell_single_quotes(
+        path.to_str()
+            .ok_or(crate::Error::ShellDirectivePathNotUtf8)?,
+    );
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)

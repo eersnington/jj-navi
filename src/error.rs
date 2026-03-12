@@ -43,8 +43,14 @@ pub enum Error {
     #[error("error: $HOME is not set")]
     HomeDirectory,
 
-    #[error("error: invalid shell rc file at {0}")]
-    InvalidShellRcFile(PathBuf),
+    #[error("error: invalid shell rc file at {path}\n{message}")]
+    InvalidShellRcFile {
+        path: PathBuf,
+        message: &'static str,
+    },
+
+    #[error("error: shell integration requires a UTF-8 workspace path")]
+    ShellDirectivePathNotUtf8,
 
     #[error("error: jj command failed: {command}\n{stderr}")]
     JjCommandFailed { command: String, stderr: String },

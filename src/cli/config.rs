@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use crate::Error;
@@ -34,7 +35,7 @@ pub fn run_shell_install(command_name: &str, shell: Option<&str>) -> Result<()> 
     let rc_path = shell_rc_path(shell)?;
     let block = render_shell_install_block(command_name, shell);
     let existing = fs::read_to_string(&rc_path).unwrap_or_default();
-    let updated = upsert_managed_block(&existing, &block)?;
+    let updated = upsert_managed_block(&existing, &block, &rc_path)?;
 
     if let Some(parent) = rc_path.parent() {
         fs::create_dir_all(parent)?;
@@ -49,7 +50,7 @@ fn shell_rc_path(shell: ShellKind) -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(shell.rc_file_name()))
 }
 
-fn upsert_managed_block(existing: &str, block: &str) -> Result<String> {
+fn upsert_managed_block(existing: &str, block: &str, rc_path: &Path) -> Result<String> {
     match (
         existing.find(MANAGED_BLOCK_START),
         existing.find(MANAGED_BLOCK_END),
@@ -74,12 +75,14 @@ fn upsert_managed_block(existing: &str, block: &str) -> Result<String> {
             }
             Ok(updated)
         }
-        (Some(_), Some(_)) => Err(Error::InvalidShellRcFile(PathBuf::from(
-            "managed block markers are out of order",
-        ))),
-        (Some(_), None) | (None, Some(_)) => Err(Error::InvalidShellRcFile(PathBuf::from(
-            "managed block markers are unbalanced",
-        ))),
+        (Some(_), Some(_)) => Err(Error::InvalidShellRcFile {
+            path: rc_path.to_path_buf(),
+            message: "managed block markers are out of order",
+        }),
+        (Some(_), None) | (None, Some(_)) => Err(Error::InvalidShellRcFile {
+            path: rc_path.to_path_buf(),
+            message: "managed block markers are unbalanced",
+        }),
         (None, None) => {
             let mut updated = String::new();
             updated.push_str(existing);
@@ -97,6 +100,8 @@ fn upsert_managed_block(existing: &str, block: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::upsert_managed_block;
     use crate::output::{MANAGED_BLOCK_END, MANAGED_BLOCK_START};
 
@@ -106,7 +111,8 @@ mod tests {
             format!("line before\n{MANAGED_BLOCK_START}\nold\n{MANAGED_BLOCK_END}\nline after\n");
         let block = format!("{MANAGED_BLOCK_START}\nnew\n{MANAGED_BLOCK_END}\n");
 
-        let updated = upsert_managed_block(&existing, &block).expect("update managed block");
+        let updated = upsert_managed_block(&existing, &block, Path::new(".bashrc"))
+            .expect("update managed block");
 
         assert!(updated.contains("line before"));
         assert!(updated.contains("line after"));
