@@ -19,11 +19,21 @@ if (!config) {
   process.exit(1);
 }
 
+const repositoryUrl = "https://github.com/eersnington/jj-navi";
+
 const packageJson = {
   name: `jj-navi-${platform}`,
   version,
   description: `navi binary for ${config.os} ${config.cpu}${config.libc ? ` (${config.libc})` : ""}`,
+  homepage: repositoryUrl,
   license: "MIT",
+  repository: {
+    type: "git",
+    url: repositoryUrl
+  },
+  bugs: {
+    url: `${repositoryUrl}/issues`
+  },
   os: [config.os],
   cpu: [config.cpu],
   preferUnplugged: true,
