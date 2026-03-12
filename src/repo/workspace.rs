@@ -68,16 +68,7 @@ impl NaviWorkspace {
             return self.workspace_root.clone();
         }
 
-        let path = self
-            .config
-            .workspace_template
-            .render(&self.repo_name, workspace);
-
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        self.workspace_root_from_template(&self.config.workspace_template, workspace)
     }
 
     #[must_use]
