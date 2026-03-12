@@ -31,6 +31,7 @@ Binary names:
 - `nv`
 
 Minimum supported `jj`: `0.39.0`
+Minimum supported Node.js for npm install: `24`
 
 ## Quick start
 
