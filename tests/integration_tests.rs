@@ -222,6 +222,27 @@ fn config_shell_install_updates_managed_block_in_place() {
 }
 
 #[test]
+fn config_shell_install_reports_real_rc_path_for_invalid_managed_block() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let bashrc = home.path().join(".bashrc");
+    std::fs::write(
+        &bashrc,
+        "# <<< jj-navi shell init <<<\n# >>> jj-navi shell init >>>\n",
+    )
+    .expect("write invalid bashrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(bashrc.display().to_string()))
+        .stderr(predicate::str::contains(
+            "managed block markers are out of order",
+        ));
+}
+
+#[test]
 fn switch_writes_cd_directive_when_shell_integration_is_active() {
     let repo = TempJjRepo::new();
     repo.create_workspace("feature-auth");
