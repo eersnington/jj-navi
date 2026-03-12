@@ -4,7 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened]
   workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
 
 env:
   CARGO_INCREMENTAL: 0
@@ -20,6 +25,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -65,8 +72,30 @@ jobs:
           cmp README.md "$OUTPUT_PATH"
           cmp README.md npm/jj-navi/README.md
 
-      - name: Smoke test fragment command
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- "smoke test fragment" -s ci --dry-run
+      - name: Smoke test current version command
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- current-version
+
+      - name: Smoke test PR validation command
+        run: |
+          EVENT_PATH="$RUNNER_TEMP/release-event.json"
+          python - <<'PY' "$EVENT_PATH"
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "w", encoding="utf-8") as handle:
+              json.dump(
+                  {
+                      "pull_request": {
+                          "number": 1,
+                          "title": "smoke test release metadata",
+                          "labels": [{"name": "release:patch"}],
+                      }
+                  },
+                  handle,
+              )
+          PY
+          cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- pr validate --event-path "$EVENT_PATH"
 
       - name: Smoke test npm platform package generation
         run: |

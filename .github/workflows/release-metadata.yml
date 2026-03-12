@@ -1,0 +1,23 @@
+name: Release Metadata
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    if: ${{ !(contains(github.event.pull_request.body, '<!-- navi-release:release-pr -->') && github.event.pull_request.user.login == 'github-actions[bot]') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate release labels
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- pr validate --event-path "$GITHUB_EVENT_PATH"

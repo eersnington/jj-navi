@@ -1,10 +1,17 @@
 name: Publish Release
 
 on:
+  pull_request:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
         description: "Version to publish"
+        required: true
+        type: string
+      ref:
+        description: "Commit, tag, or branch to publish"
         required: true
         type: string
 
@@ -12,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-publish-${{ inputs.version }}
+  group: release-publish-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.pull_request.merge_commit_sha }}
   cancel-in-progress: false
 
 env:
@@ -21,21 +28,36 @@ env:
 
 jobs:
   validate:
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.pull_request.merged == true &&
+          github.event.pull_request.user.login == 'github-actions[bot]' &&
+          startsWith(github.event.pull_request.head.ref, 'release/v') &&
+          startsWith(github.event.pull_request.title, 'release: v') &&
+          contains(github.event.pull_request.body, '<!-- navi-release:release-pr -->')
+        )
+      }}
     runs-on: ubuntu-latest
     outputs:
+      release_ref: ${{ steps.release_ref.outputs.ref }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
 
     steps:
-      - name: Verify main branch
+      - name: Resolve release ref
+        id: release_ref
         run: |
-          if [ "${{ github.ref_name }}" != "main" ]; then
-            echo "::error::Run Publish Release from main"
-            exit 1
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.event.pull_request.merge_commit_sha }}" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v6
         with:
+          ref: ${{ steps.release_ref.outputs.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -47,10 +69,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Normalize version
+      - name: Resolve version
         id: version
         run: |
-          VERSION="${{ inputs.version }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="$(cargo run --quiet --manifest-path xtask/Cargo.toml --bin navi-release -- current-version)"
+          fi
           VERSION="${VERSION#v}"
           if ! npx --yes semver "$VERSION" > /dev/null 2>&1; then
             echo "::error::Invalid semver: $VERSION"
@@ -66,10 +92,11 @@ jobs:
         run: |
           git fetch --force --tags origin
           TAG="${{ steps.version.outputs.tag }}"
+          EXPECTED_SHA="$(git rev-parse HEAD)"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
+            if [ "$TAG_COMMIT" != "$EXPECTED_SHA" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $EXPECTED_SHA"
               exit 1
             fi
           fi
@@ -77,6 +104,8 @@ jobs:
   test:
     needs: validate
     uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.validate.outputs.release_ref }}
 
   tag:
     needs: [validate, test]
@@ -91,6 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ needs.validate.outputs.release_ref }}
           fetch-depth: 0
 
       - name: Create release tag if needed
@@ -98,16 +128,17 @@ jobs:
         run: |
           git fetch --force --tags origin
           TAG="${{ needs.validate.outputs.tag }}"
+          EXPECTED_SHA="$(git rev-parse HEAD)"
           echo "release_ref=$TAG" >> "$GITHUB_OUTPUT"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
+            if [ "$TAG_COMMIT" != "$EXPECTED_SHA" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $EXPECTED_SHA"
               exit 1
             fi
             exit 0
           fi
-          git tag "$TAG" "$GITHUB_SHA"
+          git tag "$TAG" "$EXPECTED_SHA"
           git push origin "$TAG"
 
   build:

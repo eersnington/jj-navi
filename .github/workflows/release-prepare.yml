@@ -42,7 +42,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare release files
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "${{ inputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "${{ inputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --pr-body-path "$RUNNER_TEMP/release-pr-body.md"
 
       - name: Sync npm wrapper README
         run: node npm/scripts/sync-wrapper-readme.mjs
@@ -59,15 +64,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "release: v${{ inputs.version }}"
           title: "release: v${{ inputs.version }}"
-          body: |
-            Prepare release `v${{ inputs.version }}`.
-
-            Generated from `.release/*.md` fragments.
           branch: "release/v${{ inputs.version }}"
           base: main
           delete-branch: true
+          body-path: ${{ runner.temp }}/release-pr-body.md
           add-paths: |
-            .release/
             CHANGELOG.md
             Cargo.toml
             Cargo.lock
