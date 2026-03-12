@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
-use crate::types::{RepoConfig, WorkspaceListEntry, WorkspaceName};
+use crate::types::{RepoConfig, WorkspaceListEntry, WorkspaceName, WorkspaceTemplate};
 
 use super::config::{ensure_repo_config, load_repo_config};
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
@@ -86,9 +86,17 @@ impl NaviWorkspace {
     }
 
     /// Check if the target workspace directory already exists.
-    #[must_use]
-    pub fn workspace_exists(&self, workspace: &WorkspaceName) -> bool {
-        self.planned_workspace_root(workspace).is_dir()
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `jj workspace list` fails.
+    pub fn workspace_exists(&self, workspace: &WorkspaceName) -> Result<bool> {
+        let jj = JjClient::new(&self.workspace_root);
+
+        Ok(jj
+            .list_workspaces()?
+            .into_iter()
+            .any(|entry| entry.name == *workspace))
     }
 
     /// Forget a workspace via `jj workspace forget`.
@@ -140,11 +148,12 @@ impl NaviWorkspace {
     /// invalid for navi.
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceListEntry>> {
         let jj = JjClient::new(&self.workspace_root);
+        let metadata = self.display_metadata();
 
         let mut entries = jj
             .list_workspaces()?
             .into_iter()
-            .map(|entry| self.workspace_entry(entry))
+            .map(|entry| self.workspace_entry(entry, metadata.as_ref()))
             .collect::<Vec<_>>();
 
         entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -152,11 +161,18 @@ impl NaviWorkspace {
         Ok(entries)
     }
 
-    fn workspace_entry(&self, entry: super::jj::JjWorkspaceListEntry) -> WorkspaceListEntry {
+    fn workspace_entry(
+        &self,
+        entry: super::jj::JjWorkspaceListEntry,
+        metadata: Option<&WorkspaceMetadataStore>,
+    ) -> WorkspaceListEntry {
         let path = if entry.is_current {
             self.display_path_for_switch(&self.workspace_root)
         } else {
-            let planned_root = self.planned_workspace_root(&entry.name);
+            let template = metadata
+                .and_then(|metadata| metadata.template_for(&entry.name))
+                .unwrap_or(&self.config.workspace_template);
+            let planned_root = self.workspace_root_from_template(template, &entry.name);
             self.display_path_for_switch(&planned_root)
         };
 
@@ -187,6 +203,24 @@ impl NaviWorkspace {
             Ok(workspace.clone())
         } else {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
+        }
+    }
+
+    fn display_metadata(&self) -> Option<WorkspaceMetadataStore> {
+        WorkspaceMetadataStore::load(&self.repo_storage_path).ok()
+    }
+
+    fn workspace_root_from_template(
+        &self,
+        template: &WorkspaceTemplate,
+        workspace: &WorkspaceName,
+    ) -> PathBuf {
+        let path = template.render(&self.repo_name, workspace);
+
+        if path.is_absolute() {
+            path
+        } else {
+            self.workspace_root.join(path)
         }
     }
 }

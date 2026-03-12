@@ -109,6 +109,13 @@ impl WorkspaceMetadataStore {
         self.records.retain(|record| record.name != *workspace);
     }
 
+    pub(crate) fn template_for(&self, workspace: &WorkspaceName) -> Option<&WorkspaceTemplate> {
+        self.records
+            .iter()
+            .find(|record| record.name == *workspace)
+            .map(|record| &record.template)
+    }
+
     pub(crate) fn save(&self) -> Result<()> {
         let parent = self
             .path

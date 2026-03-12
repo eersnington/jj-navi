@@ -92,15 +92,20 @@ fn switch_create_with_revision_uses_requested_parent() {
 #[test]
 fn switch_create_uses_configured_workspace_template() {
     let repo = TempJjRepo::new();
-    repo.write_navi_config("workspace_template = \"../{workspace}\"\n");
-    let expected_path = repo.path().with_file_name("feature-auth");
+    repo.write_navi_config("workspace_template = \"../{repo}-{workspace}\"\n");
+    let expected_path = repo
+        .path()
+        .with_file_name(format!("{}-feature-auth", repo.repo_name()));
 
     command("navi")
         .current_dir(repo.path())
         .args(["switch", "--create", "feature-auth"])
         .assert()
         .success()
-        .stdout(predicate::eq("../feature-auth\n"));
+        .stdout(predicate::eq(format!(
+            "../{}-feature-auth\n",
+            repo.repo_name()
+        )));
 
     assert!(expected_path.is_dir());
 }
@@ -123,6 +128,51 @@ fn switch_create_preserves_literal_placeholder_text_in_repo_name() {
         )));
 
     assert!(expected_path.is_dir());
+}
+
+#[test]
+fn switch_fails_for_forgotten_workspace_even_if_directory_remains() {
+    let repo = TempJjRepo::new();
+    let workspace_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["remove", "feature-auth"])
+        .assert()
+        .success();
+
+    assert!(workspace_path.is_dir());
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: workspace does not exist"));
+}
+
+#[test]
+fn list_uses_recorded_template_after_config_changes() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    repo.write_navi_config("workspace_template = \"../{workspace}\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "../{}.feature-auth",
+            repo.repo_name()
+        )))
+        .stdout(predicate::str::contains("feature-auth"));
 }
 
 #[test]
@@ -240,6 +290,20 @@ fn config_shell_install_reports_real_rc_path_for_invalid_managed_block() {
         .stderr(predicate::str::contains(
             "managed block markers are out of order",
         ));
+}
+
+#[cfg(unix)]
+#[test]
+fn config_shell_install_fails_for_non_utf8_rc_file() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let bashrc = home.path().join(".bashrc");
+    std::fs::write(&bashrc, [0xFF]).expect("write non-utf8 bashrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .failure();
 }
 
 #[test]
