@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
+import { writePlatformReadme } from "./readme.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const platforms = JSON.parse(readFileSync(join(__dirname, "platforms.json"), "utf8"));
 const [, , platform, version, outputDir] = process.argv;
@@ -54,3 +56,5 @@ writeFileSync(
   join(platformDir, "package.json"),
   JSON.stringify(packageJson, null, 2) + "\n"
 );
+
+writePlatformReadme(platform, config, platformDir);

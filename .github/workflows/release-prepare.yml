@@ -33,11 +33,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Prepare release files
         run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "${{ inputs.version }}"
+
+      - name: Sync npm wrapper README
+        run: node npm/scripts/sync-wrapper-readme.mjs
 
       - name: Refresh Cargo.lock
         run: cargo check --quiet
@@ -64,4 +72,5 @@ jobs:
             Cargo.toml
             Cargo.lock
             README.md
+            npm/jj-navi/README.md
             npm/jj-navi/package.json

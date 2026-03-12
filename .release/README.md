@@ -2,6 +2,8 @@
 
 Add one fragment for every user-facing change.
 
+More maintainer release docs live in `xtask/README.md`.
+
 Install the maintainer helper once:
 
 ```sh
