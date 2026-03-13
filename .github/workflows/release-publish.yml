@@ -294,9 +294,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch release tags
-        run: git fetch --force --tags origin
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -310,19 +307,24 @@ jobs:
         run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ needs.preflight.outputs.version }}"
 
       - name: Create release tag if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.preflight.outputs.tag }}"
           RELEASE_REF="${{ needs.preflight.outputs.release_ref }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+          TAG_COMMIT=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
+          if [ -n "$TAG_COMMIT" ]; then
             if [ "$TAG_COMMIT" != "$RELEASE_REF" ]; then
               echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $RELEASE_REF"
               exit 1
             fi
             exit 0
           fi
-          git tag "$TAG" "$RELEASE_REF"
-          git push origin "$TAG"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG}" \
+            -f sha="$RELEASE_REF" >/dev/null
 
       - name: Publish crates.io
         env:
