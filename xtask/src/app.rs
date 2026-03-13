@@ -7,9 +7,9 @@ use crate::github;
 use crate::project;
 
 pub(crate) fn run(args: Vec<OsString>) -> Result<(), ToolError> {
-    let repo_root = project::find_repo_root(&env::current_dir()?)?;
     match parse_command(args)? {
         Command::Prepare(command) => {
+            let repo_root = project::find_repo_root(&env::current_dir()?)?;
             let version = project::parse_version(&command.version)?;
             let current_version = project::current_release_version(&repo_root)?;
 
@@ -57,6 +57,7 @@ pub(crate) fn run(args: Vec<OsString>) -> Result<(), ToolError> {
             github::validate_pull_request_event(&event_path)
         }
         Command::Validate { version } => {
+            let repo_root = project::find_repo_root(&env::current_dir()?)?;
             let target = match version {
                 Some(value) => project::parse_version(&value)?,
                 None => project::current_release_version(&repo_root)?,
@@ -73,10 +74,12 @@ pub(crate) fn run(args: Vec<OsString>) -> Result<(), ToolError> {
             Ok(())
         }
         Command::Notes { version } => {
+            let repo_root = project::find_repo_root(&env::current_dir()?)?;
             print!("{}", project::release_notes(&repo_root, &version)?);
             Ok(())
         }
         Command::CurrentVersion => {
+            let repo_root = project::find_repo_root(&env::current_dir()?)?;
             println!("{}", project::current_release_version(&repo_root)?);
             Ok(())
         }

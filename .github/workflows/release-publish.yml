@@ -48,11 +48,14 @@ jobs:
     steps:
       - name: Resolve release ref
         id: release_ref
+        env:
+          TARGET_REF: ${{ inputs.ref }}
+          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+            printf 'ref=%s\n' "$TARGET_REF" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=${{ github.event.pull_request.merge_commit_sha }}" >> "$GITHUB_OUTPUT"
+            printf 'ref=%s\n' "$MERGE_COMMIT_SHA" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v6

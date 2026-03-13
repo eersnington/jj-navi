@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use semver::Version;
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
+use toml_edit::DocumentMut;
 
 use crate::error::ToolError;
 
@@ -94,18 +95,7 @@ pub(crate) fn sync_versions(repo_root: &Path, version: &str) -> Result<(), ToolE
 
     let cargo_path = repo_root.join("Cargo.toml");
     let cargo_toml = read_text(&cargo_path)?;
-    let updated_cargo_toml = cargo_toml
-        .lines()
-        .map(|line| {
-            if line.starts_with("version = \"") {
-                format!("version = \"{version}\"")
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n";
+    let updated_cargo_toml = update_package_version(&cargo_toml, version)?;
     write_text(&cargo_path, &updated_cargo_toml)?;
 
     let readme_path = repo_root.join("README.md");
@@ -240,6 +230,20 @@ fn write_json(path: &Path, value: &Value) -> Result<(), ToolError> {
     write_text(path, &(serde_json::to_string_pretty(value)? + "\n"))
 }
 
+fn update_package_version(cargo_toml: &str, version: &str) -> Result<String, ToolError> {
+    let mut document = cargo_toml
+        .parse::<DocumentMut>()
+        .map_err(|error| ToolError::message(format!("failed to parse Cargo.toml: {error}")))?;
+
+    let package = document
+        .get_mut("package")
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .ok_or_else(|| ToolError::message("Cargo.toml missing [package] table"))?;
+
+    package.insert("version", toml_edit::value(version));
+    Ok(document.to_string())
+}
+
 fn is_repo_root(candidate: &Path) -> bool {
     has_vcs_marker(candidate) && has_repo_markers(candidate)
 }
@@ -293,7 +297,7 @@ fn supported_platforms(repo_root: &Path) -> Result<Vec<String>, ToolError> {
 
 #[cfg(test)]
 mod tests {
-    use super::find_repo_root;
+    use super::{find_repo_root, sync_versions};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -337,6 +341,13 @@ mod tests {
         touch(&root.join("xtask").join("Cargo.toml"));
     }
 
+    fn write(path: &Path, value: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dirs");
+        }
+        fs::write(path, value).expect("write file");
+    }
+
     #[test]
     fn detects_jj_repo_root() {
         let temp = TempDir::new("jj-root");
@@ -369,5 +380,35 @@ mod tests {
         fs::create_dir_all(root.join(".git")).expect("create .git dir");
 
         assert!(find_repo_root(&root).is_err());
+    }
+
+    #[test]
+    fn sync_versions_only_updates_package_version() {
+        let temp = TempDir::new("sync-versions");
+        let root = temp.path().join("repo");
+        fs::create_dir_all(root.join(".git")).expect("create .git dir");
+        make_repo_markers(&root);
+        write(
+            &root.join("Cargo.toml"),
+            "[package]\nname = \"jj-navi\"\nversion = \"0.1.0\"\n\n[workspace.package]\nversion = \"9.9.9\"\n",
+        );
+        write(
+            &root.join("README.md"),
+            "cargo install jj-navi --version 0.1.0\n",
+        );
+        write(
+            &root.join("npm/jj-navi/package.json"),
+            "{\n  \"version\": \"0.1.0\",\n  \"optionalDependencies\": {}\n}\n",
+        );
+        write(
+            &root.join("npm/scripts/platforms.json"),
+            "{\n  \"linux-x64\": {}\n}\n",
+        );
+
+        sync_versions(&root, "0.2.0").expect("sync versions");
+
+        let updated = fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
+        assert!(updated.contains("[package]\nname = \"jj-navi\"\nversion = \"0.2.0\""));
+        assert!(updated.contains("[workspace.package]\nversion = \"9.9.9\""));
     }
 }
