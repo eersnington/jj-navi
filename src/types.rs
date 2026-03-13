@@ -1,8 +1,11 @@
+//! Core domain and presentation types used by `jj-navi`.
+
 use std::fmt;
 use std::path::PathBuf;
 
 use crate::error::{Error, Result};
 
+/// Validated workspace name.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WorkspaceName(String);
 
@@ -30,6 +33,7 @@ impl WorkspaceName {
     }
 
     #[must_use]
+    /// Borrow the validated workspace name as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -41,6 +45,7 @@ impl fmt::Display for WorkspaceName {
     }
 }
 
+/// Validated workspace path template.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceTemplate(String);
 
@@ -58,11 +63,13 @@ impl WorkspaceTemplate {
     }
 
     #[must_use]
+    /// Borrow the template as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
     #[must_use]
+    /// Render the template for a repo and workspace name.
     pub fn render(&self, repo: &str, workspace: &WorkspaceName) -> PathBuf {
         let mut rendered = String::new();
         let mut chars = self.0.chars().peekable();
@@ -102,9 +109,12 @@ impl Default for WorkspaceTemplate {
     }
 }
 
+/// Shell kinds supported by shell integration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellKind {
+    /// Bash shell.
     Bash,
+    /// Zsh shell.
     Zsh,
 }
 
@@ -137,6 +147,7 @@ impl ShellKind {
     }
 
     #[must_use]
+    /// Return the shell name used in CLI output and shell code.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
@@ -145,6 +156,7 @@ impl ShellKind {
     }
 
     #[must_use]
+    /// Return the shell rc filename for this shell.
     pub fn rc_file_name(self) -> &'static str {
         match self {
             Self::Bash => ".bashrc",
@@ -153,17 +165,25 @@ impl ShellKind {
     }
 }
 
+/// Repo-scoped `jj-navi` configuration.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RepoConfig {
+    /// Template used when planning new workspace paths.
     pub workspace_template: WorkspaceTemplate,
 }
 
+/// Render-ready workspace row for `navi list`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceListEntry {
+    /// Whether this row represents the active workspace.
     pub is_current: bool,
+    /// Workspace name.
     pub name: WorkspaceName,
+    /// Display path shown in the table.
     pub path: PathBuf,
+    /// Short commit identifier.
     pub commit_id: String,
+    /// First-line commit description.
     pub message: String,
 }
 

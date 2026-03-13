@@ -22,9 +22,9 @@ pub(crate) struct WorkspaceMetadataStore {
 struct WorkspaceMetadataRecord {
     name: WorkspaceName,
     created_by_navi: bool,
-    created_at: String,
+    created_at: OffsetDateTime,
     template: WorkspaceTemplate,
-    revision: String,
+    revision: Option<String>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -74,20 +74,13 @@ impl WorkspaceMetadataStore {
         workspace: &WorkspaceName,
         template: &WorkspaceTemplate,
         revision: Option<&str>,
-    ) -> Result<()> {
-        let created_at = OffsetDateTime::now_utc()
-            .format(&Rfc3339)
-            .map_err(|error| Error::InvalidWorkspaceMetadata {
-                path: self.path.clone(),
-                message: error.to_string(),
-            })?;
-
+    ) {
         let new_record = WorkspaceMetadataRecord {
             name: workspace.clone(),
             created_by_navi: true,
-            created_at,
+            created_at: OffsetDateTime::now_utc(),
             template: template.clone(),
-            revision: revision.unwrap_or_default().to_owned(),
+            revision: revision.map(str::to_owned),
         };
 
         if let Some(existing) = self
@@ -101,19 +94,10 @@ impl WorkspaceMetadataStore {
             self.records
                 .sort_by(|left, right| left.name.cmp(&right.name));
         }
-
-        Ok(())
     }
 
     pub(crate) fn remove_workspace(&mut self, workspace: &WorkspaceName) {
         self.records.retain(|record| record.name != *workspace);
-    }
-
-    pub(crate) fn template_for(&self, workspace: &WorkspaceName) -> Option<&WorkspaceTemplate> {
-        self.records
-            .iter()
-            .find(|record| record.name == *workspace)
-            .map(|record| &record.template)
     }
 
     pub(crate) fn save(&self) -> Result<()> {
@@ -130,14 +114,21 @@ impl WorkspaceMetadataStore {
             workspaces: self
                 .records
                 .iter()
-                .map(|record| WorkspaceMetadataRecordFile {
-                    name: record.name.as_str().to_owned(),
-                    created_by_navi: record.created_by_navi,
-                    created_at: record.created_at.clone(),
-                    template: record.template.as_str().to_owned(),
-                    revision: record.revision.clone(),
+                .map(|record| {
+                    Ok(WorkspaceMetadataRecordFile {
+                        name: record.name.as_str().to_owned(),
+                        created_by_navi: record.created_by_navi,
+                        created_at: record.created_at.format(&Rfc3339).map_err(|error| {
+                            Error::InvalidWorkspaceMetadata {
+                                path: self.path.clone(),
+                                message: error.to_string(),
+                            }
+                        })?,
+                        template: record.template.as_str().to_owned(),
+                        revision: record.revision.clone().unwrap_or_default(),
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
         };
 
         let contents =
@@ -160,14 +151,23 @@ fn parse_record_file(
             message: error.to_string(),
         })?,
         created_by_navi: record.created_by_navi,
-        created_at: record.created_at,
+        created_at: OffsetDateTime::parse(&record.created_at, &Rfc3339).map_err(|error| {
+            Error::InvalidWorkspaceMetadata {
+                path: path.to_path_buf(),
+                message: error.to_string(),
+            }
+        })?,
         template: WorkspaceTemplate::new(record.template).map_err(|error| {
             Error::InvalidWorkspaceMetadata {
                 path: path.to_path_buf(),
                 message: error.to_string(),
             }
         })?,
-        revision: record.revision,
+        revision: if record.revision.is_empty() {
+            None
+        } else {
+            Some(record.revision)
+        },
     })
 }
 

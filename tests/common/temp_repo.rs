@@ -49,6 +49,10 @@ impl TempJjRepo {
         let path = self
             .path()
             .with_file_name(format!("{}.{}", self.repo_name(), name));
+        self.create_workspace_at(name, &path)
+    }
+
+    pub fn create_workspace_at(&self, name: &str, path: &Path) -> PathBuf {
         run_jj(
             self.path(),
             &[
@@ -59,7 +63,7 @@ impl TempJjRepo {
                 path.to_str().expect("workspace path"),
             ],
         );
-        path
+        path.to_path_buf()
     }
 
     pub fn run(&self, args: &[&str]) -> String {

@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::{Error, Result};
@@ -17,9 +17,44 @@ pub(crate) struct JjClient<'a> {
     workspace_root: &'a Path,
 }
 
+const MINIMUM_JJ_VERSION: JjVersion = JjVersion {
+    major: 0,
+    minor: 39,
+    patch: 0,
+};
+const MINIMUM_JJ_VERSION_STR: &str = "0.39.0";
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct JjVersion {
+    major: u64,
+    minor: u64,
+    patch: u64,
+}
+
 impl<'a> JjClient<'a> {
     pub(crate) fn new(workspace_root: &'a Path) -> Self {
         Self { workspace_root }
+    }
+
+    pub(crate) fn ensure_supported_version(&self) -> Result<()> {
+        let args = [OsString::from("--version")];
+        let output = self.run(&args)?;
+        let found = output.trim().to_owned();
+        let Some(version) = parse_jj_version(&output) else {
+            return Err(Error::UnsupportedJjVersion {
+                found,
+                minimum: MINIMUM_JJ_VERSION_STR,
+            });
+        };
+
+        if version < MINIMUM_JJ_VERSION {
+            return Err(Error::UnsupportedJjVersion {
+                found,
+                minimum: MINIMUM_JJ_VERSION_STR,
+            });
+        }
+
+        Ok(())
     }
 
     pub(crate) fn current_workspace_name(&self) -> Result<WorkspaceName> {
@@ -33,7 +68,7 @@ impl<'a> JjClient<'a> {
         let name = output
             .lines()
             .find(|line| !line.is_empty())
-            .ok_or(Error::RepoName)?;
+            .ok_or(Error::OrphanedWorkspace)?;
 
         WorkspaceName::new(name.to_owned())
     }
@@ -73,6 +108,26 @@ impl<'a> JjClient<'a> {
         let args = workspace_add_args(workspace, target_root, revision);
 
         self.run(&args).map(|_| ())
+    }
+
+    pub(crate) fn workspace_root(&self, workspace: &WorkspaceName) -> Result<PathBuf> {
+        let args = [
+            OsString::from("workspace"),
+            OsString::from("root"),
+            OsString::from("--name"),
+            OsString::from(workspace.as_str()),
+        ];
+        let output = self.run(&args)?;
+        let root = output.trim();
+
+        if root.is_empty() {
+            return Err(Error::JjCommandFailed {
+                command: format_command(&args),
+                stderr: String::from("jj returned an empty workspace root"),
+            });
+        }
+
+        Ok(PathBuf::from(root))
     }
 
     fn run(&self, args: &[OsString]) -> Result<String> {
@@ -122,12 +177,45 @@ fn format_command(args: &[OsString]) -> String {
     format!("jj {rendered}")
 }
 
+fn parse_jj_version(output: &str) -> Option<JjVersion> {
+    let token = output
+        .split_whitespace()
+        .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))?;
+    let mut parts = token.split('.');
+
+    Some(JjVersion {
+        major: parse_version_component(parts.next()?)?,
+        minor: parse_version_component(parts.next()?)?,
+        patch: parse_version_component(parts.next()?)?,
+    })
+}
+
+fn parse_version_component(component: &str) -> Option<u64> {
+    let digits = component
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+
+    if digits.is_empty() {
+        return None;
+    }
+
+    digits.parse().ok()
+}
+
 fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
     let mut parts = line.splitn(4, '\0');
-    let name = parts.next().unwrap_or_default();
-    let is_current = parts.next().unwrap_or_default() == "1";
-    let commit_id = parts.next().unwrap_or_default();
-    let message = parts.next().unwrap_or_default();
+    let (Some(name), Some(is_current), Some(commit_id), Some(message)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Error::InvalidJjWorkspaceListEntry(line.to_owned()));
+    };
+
+    let is_current = match is_current {
+        "0" => false,
+        "1" => true,
+        _ => return Err(Error::InvalidJjWorkspaceListEntry(line.to_owned())),
+    };
 
     Ok(JjWorkspaceListEntry {
         name: WorkspaceName::new(name.to_owned())?,
@@ -144,7 +232,7 @@ mod tests {
 
     use crate::types::WorkspaceName;
 
-    use super::workspace_add_args;
+    use super::{JjVersion, parse_jj_version, parse_workspace_line, workspace_add_args};
 
     #[cfg(unix)]
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -160,6 +248,56 @@ mod tests {
         assert_eq!(
             args.last().expect("target path arg").as_os_str().as_bytes(),
             target_root.as_os_str().as_bytes()
+        );
+    }
+
+    #[test]
+    fn parses_plain_jj_version_output() {
+        assert_eq!(
+            parse_jj_version("jj 0.39.0\n"),
+            Some(JjVersion {
+                major: 0,
+                minor: 39,
+                patch: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_jj_version_with_suffix() {
+        assert_eq!(
+            parse_jj_version("jj 0.39.0-12-gabcdef\n"),
+            Some(JjVersion {
+                major: 0,
+                minor: 39,
+                patch: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unparseable_jj_version_output() {
+        assert_eq!(parse_jj_version("jj dev build\n"), None);
+    }
+
+    #[test]
+    fn rejects_workspace_list_line_with_missing_fields() {
+        let error = parse_workspace_line("default\0").expect_err("reject malformed line");
+
+        assert_eq!(
+            error.to_string(),
+            "error: invalid jj workspace list entry\ndefault\0"
+        );
+    }
+
+    #[test]
+    fn rejects_workspace_list_line_with_invalid_current_marker() {
+        let error = parse_workspace_line("default\0x\0abc123\0message")
+            .expect_err("reject malformed current marker");
+
+        assert_eq!(
+            error.to_string(),
+            "error: invalid jj workspace list entry\ndefault\0x\0abc123\0message"
         );
     }
 }

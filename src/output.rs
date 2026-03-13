@@ -1,3 +1,5 @@
+//! Output rendering helpers for CLI-facing text and shell integration.
+
 use std::fmt::Write;
 use std::fs::OpenOptions;
 use std::io::Write as _;
@@ -5,51 +7,58 @@ use std::path::Path;
 
 use crate::types::{ShellKind, WorkspaceListEntry};
 
+const WORKSPACE_HEADER: &str = "workspace";
+const PATH_HEADER: &str = "path";
+const COMMIT_HEADER: &str = "commit";
+
+/// Environment variable used by shell integration to pass a directive file.
 pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
+/// Marker for the start of the managed shell block.
 pub const MANAGED_BLOCK_START: &str = "# >>> jj-navi shell init >>>";
+/// Marker for the end of the managed shell block.
 pub const MANAGED_BLOCK_END: &str = "# <<< jj-navi shell init <<<";
 
+/// Render a table of workspaces for `navi list`.
 #[must_use]
 pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
-    let workspace_width = entries
+    let rendered_entries = entries
         .iter()
-        .map(|entry| entry.name.as_str().len())
-        .chain(std::iter::once("workspace".len()))
-        .max()
-        .unwrap_or("workspace".len());
-    let path_width = entries
+        .map(|entry| RenderedWorkspaceEntry {
+            is_current: entry.is_current,
+            name: entry.name.as_str(),
+            path: entry.path.display().to_string(),
+            commit_id: entry.commit_id.as_str(),
+            message: entry.message.as_str(),
+        })
+        .collect::<Vec<_>>();
+
+    let workspace_width = rendered_entries
         .iter()
-        .map(|entry| entry.path.display().to_string().len())
-        .chain(std::iter::once("path".len()))
-        .max()
-        .unwrap_or("path".len());
-    let commit_width = entries
+        .map(|entry| entry.name.len())
+        .fold(WORKSPACE_HEADER.len(), usize::max);
+    let path_width = rendered_entries
+        .iter()
+        .map(|entry| entry.path.len())
+        .fold(PATH_HEADER.len(), usize::max);
+    let commit_width = rendered_entries
         .iter()
         .map(|entry| entry.commit_id.len())
-        .chain(std::iter::once("commit".len()))
-        .max()
-        .unwrap_or("commit".len());
+        .fold(COMMIT_HEADER.len(), usize::max);
 
     let mut output = String::new();
     writeln!(
         output,
-        "marker  {:<workspace_width$}  {:<path_width$}  {:<commit_width$}  message",
-        "workspace",
-        "path",
-        "commit",
-        workspace_width = workspace_width,
-        path_width = path_width,
-        commit_width = commit_width
+        "marker  {WORKSPACE_HEADER:<workspace_width$}  {PATH_HEADER:<path_width$}  {COMMIT_HEADER:<commit_width$}  message"
     )
     .expect("write table header");
 
-    for entry in entries {
+    for entry in rendered_entries {
         writeln!(
             output,
             "{:<6}  {:<workspace_width$}  {:<path_width$}  {:<commit_width$}  {}",
             if entry.is_current { "@" } else { "" },
             entry.name,
-            entry.path.display(),
+            entry.path,
             entry.commit_id,
             entry.message,
             workspace_width = workspace_width,
@@ -62,6 +71,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
     output
 }
 
+/// Render shell initialization code for the chosen shell.
 #[must_use]
 pub fn render_shell_init(command_name: &str, shell: ShellKind) -> String {
     let source_cmd = match shell {
@@ -77,6 +87,7 @@ pub fn render_shell_init(command_name: &str, shell: ShellKind) -> String {
     )
 }
 
+/// Render the managed shell block inserted into a shell rc file.
 #[must_use]
 pub fn render_shell_install_block(command_name: &str, shell: ShellKind) -> String {
     format!(
@@ -114,9 +125,18 @@ pub fn write_cd_directive(path: &Path) -> crate::Result<bool> {
     Ok(true)
 }
 
+/// Escape single quotes for POSIX shell single-quoted strings.
 #[must_use]
 pub fn escape_shell_single_quotes(value: &str) -> String {
     value.replace('\'', "'\\''")
+}
+
+struct RenderedWorkspaceEntry<'a> {
+    is_current: bool,
+    name: &'a str,
+    path: String,
+    commit_id: &'a str,
+    message: &'a str,
 }
 
 #[cfg(test)]

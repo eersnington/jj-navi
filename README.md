@@ -64,7 +64,7 @@ navi switch <workspace>
 navi switch --create <workspace>
 navi switch --create <workspace> --revision <revset>
 navi list
-navi remove [workspace]
+navi remove <workspace>
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
 ```
@@ -94,6 +94,7 @@ Default workspace path template:
 
 ## Notes
 
+- `remove` requires an explicit workspace name and refuses to remove the current workspace
 - `remove` is forget-only by default; it does not delete workspace directories
 - supported shells today: `bash`, `zsh`
 - fish support, hooks, `doctor`, `prune`, and cross-workspace dirty status are planned in roadmap

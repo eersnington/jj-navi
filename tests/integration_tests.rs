@@ -5,12 +5,49 @@ use predicates::prelude::*;
 
 use common::TempJjRepo;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn command(bin: &str) -> Command {
     match bin {
         "navi" => Command::new(assert_cmd::cargo::cargo_bin!("navi")),
         "nv" => Command::new(assert_cmd::cargo::cargo_bin!("nv")),
         _ => panic!("unknown bin: {bin}"),
     }
+}
+
+fn command_output(bin: &str, current_dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    command(bin)
+        .current_dir(current_dir)
+        .args(args)
+        .output()
+        .expect("run command")
+}
+
+#[cfg(unix)]
+fn fake_old_jj_path() -> tempfile::TempDir {
+    use std::env;
+    use std::fs;
+
+    let temp = tempfile::TempDir::new().expect("temp fake jj dir");
+    let wrapper_path = temp.path().join("jj");
+    let real_jj = env::split_paths(&env::var_os("PATH").expect("PATH set"))
+        .map(|dir| dir.join("jj"))
+        .find(|candidate| candidate.is_file())
+        .expect("find real jj binary");
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'jj 0.38.0\\n'\nelse\n  exec \"{}\" \"$@\"\nfi\n",
+        real_jj.display()
+    );
+
+    fs::write(&wrapper_path, script).expect("write fake jj wrapper");
+    let mut permissions = fs::metadata(&wrapper_path)
+        .expect("fake jj metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&wrapper_path, permissions).expect("set fake jj permissions");
+
+    temp
 }
 
 #[test]
@@ -152,7 +189,29 @@ fn switch_fails_for_forgotten_workspace_even_if_directory_remains() {
 }
 
 #[test]
-fn list_uses_recorded_template_after_config_changes() {
+fn switch_uses_actual_jj_workspace_path_for_existing_workspace() {
+    let repo = TempJjRepo::new();
+    let custom_path = repo
+        .path()
+        .with_file_name(format!("{}-custom-feature-auth", repo.repo_name()));
+    repo.create_workspace_at("feature-auth", &custom_path);
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}\n",
+            custom_path
+                .file_name()
+                .expect("custom workspace dir")
+                .to_string_lossy()
+        )));
+}
+
+#[test]
+fn list_uses_actual_jj_path_after_config_changes() {
     let repo = TempJjRepo::new();
 
     command("navi")
@@ -172,6 +231,29 @@ fn list_uses_recorded_template_after_config_changes() {
             "../{}.feature-auth",
             repo.repo_name()
         )))
+        .stdout(predicate::str::contains("feature-auth"));
+}
+
+#[test]
+fn list_uses_actual_jj_workspace_path_for_non_navi_workspace() {
+    let repo = TempJjRepo::new();
+    let custom_path = repo
+        .path()
+        .with_file_name(format!("{}-custom-feature-auth", repo.repo_name()));
+    repo.create_workspace_at("feature-auth", &custom_path);
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            custom_path
+                .file_name()
+                .expect("custom workspace dir")
+                .to_string_lossy()
+                .to_string(),
+        ))
         .stdout(predicate::str::contains("feature-auth"));
 }
 
@@ -440,7 +522,7 @@ fn list_prints_workspace_table() {
 }
 
 #[test]
-fn list_survives_missing_workspace_directory() {
+fn list_reports_missing_workspace_directory_from_jj() {
     let repo = TempJjRepo::new();
     let feature_path = repo.create_workspace("feature-auth");
     let feature_name = feature_path.file_name().expect("workspace dir name");
@@ -453,8 +535,10 @@ fn list_survives_missing_workspace_directory() {
         .current_dir(repo.path())
         .args(["list"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("feature-auth"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: jj command failed: jj workspace root --name feature-auth",
+        ));
 }
 
 #[test]
@@ -474,19 +558,44 @@ fn remove_named_workspace_forgets_workspace_and_keeps_directory() {
 }
 
 #[test]
-fn remove_without_name_forgets_current_workspace() {
+fn remove_without_name_requires_explicit_workspace_name() {
     let repo = TempJjRepo::new();
-    let feature_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["remove"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Usage: navi remove <WORKSPACE>"));
+}
+
+#[test]
+fn remove_current_workspace_fails_and_keeps_metadata() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path =
+        repo.path()
+            .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
 
     command("navi")
         .current_dir(&feature_path)
-        .args(["remove"])
+        .args(["remove", "feature-auth"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("forgot workspace 'feature-auth'"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: cannot remove current workspace",
+        ));
 
     assert!(feature_path.is_dir());
-    assert!(!repo.run(&["workspace", "list"]).contains("feature-auth"));
+    assert!(repo.run(&["workspace", "list"]).contains("feature-auth"));
+    let metadata = std::fs::read_to_string(repo.navi_metadata_path()).expect("read navi metadata");
+    assert!(metadata.contains("feature-auth"));
 }
 
 #[test]
@@ -501,6 +610,63 @@ fn remove_missing_workspace_fails_with_useful_error() {
         .stderr(predicate::str::contains(
             "error: workspace 'does-not-exist' does not exist",
         ));
+}
+
+#[test]
+fn list_is_stable_from_nested_directory() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    let nested_path = repo.path().join("nested").join("dir");
+    std::fs::create_dir_all(&nested_path).expect("create nested path");
+
+    let root_output = command_output("navi", repo.path(), &["list"]);
+    let nested_output = command_output("navi", &nested_path, &["list"]);
+
+    assert!(root_output.status.success(), "root list failed");
+    assert!(nested_output.status.success(), "nested list failed");
+    assert_eq!(root_output.stdout, nested_output.stdout);
+}
+
+#[test]
+fn orphaned_workspace_reports_recovery_error() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+    repo.run(&["workspace", "forget", "feature-auth"]);
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: current directory is no longer a registered jj workspace",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: cd into another workspace or recreate this workspace with jj",
+        ));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_fail_fast_on_unsupported_jj_version() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_old_jj_path();
+    let mut paths = vec![fake_jj.path().to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").expect("PATH set"),
+    ));
+    let path = std::env::join_paths(paths).expect("join PATH");
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path)
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: jj 0.39.0 or newer required",
+        ))
+        .stderr(predicate::str::contains("hint: found jj 0.38.0"));
 }
 
 #[test]
