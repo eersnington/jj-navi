@@ -31,8 +31,9 @@ impl NaviWorkspace {
         let cwd = path.canonicalize()?;
         let workspace_root = find_workspace_root(&cwd)?;
         let repo_storage_path = resolve_repo_storage_path(&workspace_root)?;
-        let config = load_repo_config(&repo_storage_path)?;
         let jj = JjClient::new(&workspace_root);
+        jj.ensure_supported_version()?;
+        let config = load_repo_config(&repo_storage_path)?;
         let current_workspace = jj.current_workspace_name()?;
         let repo_name = derive_repo_name(&workspace_root, &current_workspace)?;
 
@@ -44,21 +45,6 @@ impl NaviWorkspace {
             config,
             repo_name,
         })
-    }
-
-    #[must_use]
-    pub fn workspace_root(&self) -> &Path {
-        &self.workspace_root
-    }
-
-    #[must_use]
-    pub fn repo_storage_path(&self) -> &Path {
-        &self.repo_storage_path
-    }
-
-    #[must_use]
-    pub fn current_workspace(&self) -> &WorkspaceName {
-        &self.current_workspace
     }
 
     /// Compute the absolute workspace root for `workspace`.
@@ -74,6 +60,22 @@ impl NaviWorkspace {
     #[must_use]
     pub fn display_path_for_switch(&self, target_root: &Path) -> PathBuf {
         diff_paths(target_root, &self.cwd).unwrap_or_else(|| target_root.to_path_buf())
+    }
+
+    #[must_use]
+    pub fn display_path_for_list(&self, target_root: &Path) -> PathBuf {
+        diff_paths(target_root, &self.workspace_root).unwrap_or_else(|| target_root.to_path_buf())
+    }
+
+    /// Resolve the actual workspace root recorded by `jj`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `jj workspace root --name` fails.
+    pub fn actual_workspace_root(&self, workspace: &WorkspaceName) -> Result<PathBuf> {
+        let jj = JjClient::new(&self.workspace_root);
+
+        jj.workspace_root(workspace)
     }
 
     /// Check if the target workspace directory already exists.
@@ -96,7 +98,7 @@ impl NaviWorkspace {
     ///
     /// Returns an error if the workspace does not exist or if `jj` returns an
     /// error.
-    pub fn forget_workspace(&self, workspace: Option<&WorkspaceName>) -> Result<WorkspaceName> {
+    pub fn forget_workspace(&self, workspace: &WorkspaceName) -> Result<WorkspaceName> {
         let mut metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
         let workspace = self.resolve_workspace_forget_target(workspace)?;
         let jj = JjClient::new(&self.workspace_root);
@@ -125,7 +127,7 @@ impl NaviWorkspace {
         ensure_repo_config(&self.repo_storage_path, &self.config)?;
 
         jj.workspace_add(workspace, &target_root, revision)?;
-        metadata.record_workspace(workspace, &self.config.workspace_template, revision)?;
+        metadata.record_workspace(workspace, &self.config.workspace_template, revision);
         metadata.save()?;
 
         Ok(target_root)
@@ -139,13 +141,13 @@ impl NaviWorkspace {
     /// invalid for navi.
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceListEntry>> {
         let jj = JjClient::new(&self.workspace_root);
-        let metadata = self.display_metadata();
+        let workspace_entries = jj.list_workspaces()?;
+        let mut entries = Vec::with_capacity(workspace_entries.len());
 
-        let mut entries = jj
-            .list_workspaces()?
-            .into_iter()
-            .map(|entry| self.workspace_entry(entry, metadata.as_ref()))
-            .collect::<Vec<_>>();
+        for entry in workspace_entries {
+            let actual_root = jj.workspace_root(&entry.name)?;
+            entries.push(self.workspace_entry(entry, &actual_root));
+        }
 
         entries.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -155,16 +157,12 @@ impl NaviWorkspace {
     fn workspace_entry(
         &self,
         entry: super::jj::JjWorkspaceListEntry,
-        metadata: Option<&WorkspaceMetadataStore>,
+        actual_root: &Path,
     ) -> WorkspaceListEntry {
         let path = if entry.is_current {
-            self.display_path_for_switch(&self.workspace_root)
+            PathBuf::from(".")
         } else {
-            let template = metadata
-                .and_then(|metadata| metadata.template_for(&entry.name))
-                .unwrap_or(&self.config.workspace_template);
-            let planned_root = self.workspace_root_from_template(template, &entry.name);
-            self.display_path_for_switch(&planned_root)
+            self.display_path_for_list(actual_root)
         };
 
         WorkspaceListEntry {
@@ -176,13 +174,10 @@ impl NaviWorkspace {
         }
     }
 
-    fn resolve_workspace_forget_target(
-        &self,
-        workspace: Option<&WorkspaceName>,
-    ) -> Result<WorkspaceName> {
-        let Some(workspace) = workspace else {
-            return Ok(self.current_workspace.clone());
-        };
+    fn resolve_workspace_forget_target(&self, workspace: &WorkspaceName) -> Result<WorkspaceName> {
+        if workspace == &self.current_workspace {
+            return Err(Error::CannotRemoveCurrentWorkspace);
+        }
 
         let jj = JjClient::new(&self.workspace_root);
         let exists = jj
@@ -195,10 +190,6 @@ impl NaviWorkspace {
         } else {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
         }
-    }
-
-    fn display_metadata(&self) -> Option<WorkspaceMetadataStore> {
-        WorkspaceMetadataStore::load(&self.repo_storage_path).ok()
     }
 
     fn workspace_root_from_template(

@@ -10,10 +10,10 @@ use crate::types::WorkspaceName;
 ///
 /// Returns an error if workspace validation, discovery, or `jj workspace forget`
 /// fails.
-pub fn run_remove(path: &Path, workspace: Option<&str>) -> Result<()> {
-    let workspace = workspace.map(WorkspaceName::new).transpose()?;
+pub fn run_remove(path: &Path, workspace: &str) -> Result<()> {
+    let workspace = WorkspaceName::new(workspace.to_owned())?;
     let repo = NaviWorkspace::open(path)?;
-    let removed = repo.forget_workspace(workspace.as_ref())?;
+    let removed = repo.forget_workspace(&workspace)?;
 
     println!("forgot workspace '{removed}'");
     Ok(())

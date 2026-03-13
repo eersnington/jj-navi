@@ -30,8 +30,10 @@ pub(crate) fn resolve_repo_storage_path(workspace_root: &Path) -> Result<PathBuf
         workspace_root.join(".jj").join(pointer_path)
     };
 
-    let resolved =
-        fs::canonicalize(&resolved).map_err(|_| Error::InvalidRepoPointer(repo_path.clone()))?;
+    let resolved = fs::canonicalize(&resolved).map_err(|error| Error::RepoPointerResolution {
+        path: repo_path.clone(),
+        message: error.to_string(),
+    })?;
     if !resolved.is_dir() {
         return Err(Error::InvalidRepoPointer(repo_path));
     }
@@ -82,7 +84,10 @@ mod tests {
 
         let error = resolve_repo_storage_path(&workspace_root).expect_err("missing repo target");
 
-        assert!(matches!(error, Error::InvalidRepoPointer(path) if path == repo_pointer));
+        assert!(matches!(
+            error,
+            Error::RepoPointerResolution { path, .. } if path == repo_pointer
+        ));
     }
 
     #[test]

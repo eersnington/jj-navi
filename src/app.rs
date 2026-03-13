@@ -27,7 +27,7 @@ enum Commands {
     },
     List,
     Remove {
-        workspace: Option<String>,
+        workspace: String,
     },
     Config {
         #[command(subcommand)]
@@ -72,6 +72,7 @@ impl From<crate::Error> for AppError {
 }
 
 #[must_use]
+/// Run the CLI entrypoint for the provided binary name and argv.
 pub fn main(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> ExitCode {
     match run(bin_name, args) {
         Ok(()) => ExitCode::SUCCESS,
@@ -100,7 +101,7 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
             workspace,
         } => cli::run_switch(&path, &workspace, create, revision.as_deref())?,
         Commands::List => cli::run_list(&path)?,
-        Commands::Remove { workspace } => cli::run_remove(&path, workspace.as_deref())?,
+        Commands::Remove { workspace } => cli::run_remove(&path, &workspace)?,
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {
                 ShellCommands::Init { shell } => cli::run_shell_init(bin_name, &shell)?,

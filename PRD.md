@@ -402,10 +402,6 @@ Illustrative later output:
 navi remove <workspace>
 ```
 
-Default target if omitted:
-
-- current workspace
-
 Base behavior:
 
 ```sh
@@ -421,7 +417,8 @@ Current v1 behavior:
 
 - forgets the workspace via `jj workspace forget`
 - keeps the workspace directory on disk
-- allows omitting `<workspace>` to target the current workspace
+- requires an explicit workspace name
+- refuses to remove the current workspace
 
 ### `config shell install`
 
@@ -647,7 +644,7 @@ Known current limits:
 
 Current code note:
 
-- some current code paths are intentionally conservative and may work on older `jj` installs, but the product baseline going forward is `0.39.0`
+- repo-backed commands must fail fast on unsupported `jj` versions below `0.39.0`
 
 ## 22. Current Test Coverage
 
