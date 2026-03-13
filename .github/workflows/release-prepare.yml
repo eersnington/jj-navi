@@ -33,6 +33,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch release tags
+        run: git fetch --force --tags origin
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -41,17 +44,177 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Prepare release files
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "${{ inputs.version }}"
+      - name: Gather release input
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT_PATH: ${{ runner.temp }}/release-input.json
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
 
-      - name: Sync npm wrapper README
-        run: node npm/scripts/sync-wrapper-readme.mjs
+          release_labels = {
+              "release:major": "major",
+              "release:minor": "minor",
+              "release:patch": "patch",
+              "release:none": "none",
+          }
+          release_help = (
+              "release:major = breaking user-facing change; "
+              "release:minor = new user-facing feature; "
+              "release:patch = user-facing fix or improvement; "
+              "release:none = not user-facing"
+          )
+          semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          output_path = os.environ["OUTPUT_PATH"]
+          release_version = os.environ["RELEASE_VERSION"]
+          if not semver_re.fullmatch(release_version):
+              sys.exit(f"invalid semver: {release_version}")
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          def is_ancestor(ancestor: str, descendant: str) -> bool:
+              return subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0
+
+          def gh_api(path: str) -> list[dict[str, object]]:
+              output = subprocess.check_output(["gh", "api", "--paginate", "--slurp", path], text=True)
+              pages = json.loads(output)
+              items: list[dict[str, object]] = []
+              for page in pages:
+                  items.extend(page)
+              return items
+
+          def release_branch_version(pr: dict[str, object]) -> str | None:
+              head = pr.get("head")
+              if not isinstance(head, dict):
+                  return None
+              ref = head.get("ref")
+              if not isinstance(ref, str) or not ref.startswith("release/v"):
+                  return None
+              version = ref[len("release/v") :].strip()
+              if not semver_re.fullmatch(version):
+                  return None
+              base = pr.get("base")
+              if not isinstance(base, dict) or base.get("ref") != "main":
+                  return None
+              return version
+
+          previous_tag = next(
+              iter(line for line in git("tag", "--merged", "HEAD", "--list", "v*", "--sort=-v:refname").splitlines() if line),
+              None,
+          )
+
+          open_pulls = gh_api(f"repos/{repo}/pulls?state=open&base=main&sort=updated&direction=desc&per_page=100")
+          open_release_versions = sorted(
+              {version for pr in open_pulls if (version := release_branch_version(pr)) is not None}
+          )
+          if len(open_release_versions) > 1:
+              sys.exit(f"multiple open release PRs: {', '.join(open_release_versions)}")
+          if open_release_versions and open_release_versions[0] != release_version:
+              sys.exit(
+                  f"open release PR exists for v{open_release_versions[0]}; close it or reuse that version first"
+              )
+
+          closed_pulls = gh_api(f"repos/{repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100")
+          prs = []
+          for pr in closed_pulls:
+              if not pr.get("merged_at"):
+                  continue
+              if release_branch_version(pr) is not None:
+                  continue
+              merge_commit_sha = pr.get("merge_commit_sha")
+              if not isinstance(merge_commit_sha, str) or merge_commit_sha == "":
+                  continue
+              if not is_ancestor(merge_commit_sha, "HEAD"):
+                  continue
+              if previous_tag and is_ancestor(merge_commit_sha, previous_tag):
+                  continue
+
+              labels = [
+                  label.get("name")
+                  for label in pr.get("labels", [])
+                  if isinstance(label, dict) and isinstance(label.get("name"), str)
+              ]
+              selected_labels = [label for label in labels if label in release_labels]
+              if len(selected_labels) == 0:
+                  number = pr.get("number", "?")
+                  sys.exit(
+                      f"merged PR #{number} is missing a release label; add exactly one of "
+                      f"release:major, release:minor, release:patch, release:none. {release_help}"
+                  )
+              if len(selected_labels) > 1:
+                  number = pr.get("number", "?")
+                  sys.exit(
+                      f"merged PR #{number} has too many release labels; keep exactly one of "
+                      f"release:major, release:minor, release:patch, release:none; found {selected_labels}. {release_help}"
+                  )
+
+              user = pr.get("user")
+              if not isinstance(user, dict) or not isinstance(user.get("login"), str):
+                  number = pr.get("number", "?")
+                  sys.exit(f"merged PR #{number} is missing author login")
+
+              title = pr.get("title")
+              merged_at = pr.get("merged_at")
+              number = pr.get("number")
+              if not isinstance(title, str) or not isinstance(merged_at, str) or not isinstance(number, int):
+                  sys.exit("merged PR metadata incomplete")
+
+              prs.append(
+                  {
+                      "number": number,
+                      "title": title,
+                      "author": {
+                          "login": user["login"],
+                          "displayName": f"@{user['login']}",
+                      },
+                      "mergedAt": merged_at,
+                      "mergeCommitSha": merge_commit_sha,
+                      "release": release_labels[selected_labels[0]],
+                  }
+              )
+
+          prs.sort(key=lambda pr: (pr["mergedAt"], pr["number"]))
+          if not prs:
+              sys.exit("no merged PRs since last published tag")
+          if not any(pr["release"] != "none" for pr in prs):
+              sys.exit("merged PRs since last release are all release:none")
+
+          payload = {
+              "schema": 1,
+              "previousTag": previous_tag,
+              "prs": prs,
+          }
+          with open(output_path, "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, indent=2)
+              handle.write("\n")
+          PY
+
+      - name: Prepare release files
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_INPUT_PATH: ${{ runner.temp }}/release-input.json
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- prepare "$RELEASE_VERSION" "$RELEASE_INPUT_PATH"
 
       - name: Refresh Cargo.lock
         run: cargo check --quiet
 
       - name: Validate release files
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ inputs.version }}"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "$RELEASE_VERSION"
 
       - name: Create release PR
         uses: peter-evans/create-pull-request@v8
@@ -61,13 +224,10 @@ jobs:
           title: "release: v${{ inputs.version }}"
           body: |
             Prepare release `v${{ inputs.version }}`.
-
-            Generated from `.release/*.md` fragments.
           branch: "release/v${{ inputs.version }}"
           base: main
           delete-branch: true
           add-paths: |
-            .release/
             CHANGELOG.md
             Cargo.toml
             Cargo.lock

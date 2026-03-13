@@ -2,7 +2,7 @@
 
 Maintainer docs for `jj-navi` release tooling.
 
-`xtask` builds the `navi-release` helper used for release fragments, version sync, and release validation.
+`xtask` builds the `navi-release` helper used for release prep, version sync, and release validation.
 
 ## Install
 
@@ -16,38 +16,18 @@ If `navi-release` is not on your shell path:
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
-## Release fragments
+## PR labels
 
-Every user-facing PR should add one fragment in `.release/`.
+Every PR must have exactly one GitHub label:
 
-Create one with:
+- `release:major`
+- `release:minor`
+- `release:patch`
+- `release:none`
 
-```sh
-navi-release "fix nested workspace discovery" -s cli
-```
+Use `release:none` for changes that are not user-facing.
 
-Or run the helper with no args for the interactive wizard:
-
-```sh
-navi-release
-```
-
-Defaults:
-
-- no bump arg means `patch`
-- use `minor` or `major` only when needed
-- fragment bullets become changelog entries and GitHub release notes
-
-Fragment format:
-
-```md
----
-bump: patch
-scope: cli
----
-- fix nested workspace discovery
-- improve `nv` parity with `navi`
-```
+`test.yml` enforces the label rule on pull requests.
 
 ## Prepare a release
 
@@ -55,23 +35,27 @@ Run `Prepare Release` in GitHub Actions with the target version.
 
 That workflow will:
 
-- roll `.release/*.md` fragments into `CHANGELOG.md`
-- sync versions in `Cargo.toml`, `README.md`, and `npm/jj-navi/package.json`
-- open a release PR
+- gather merged PR metadata live from GitHub since the last published tag
+- build `CHANGELOG.md` entries with PR refs and author names
+- sync versions in `Cargo.toml`, `README.md`, `npm/jj-navi/README.md`, and `npm/jj-navi/package.json`
+- open or update the generated release PR
 
 ## Publish a release
 
-After the release PR is merged, run `Publish Release` in GitHub Actions with the same version.
+Merging the generated release PR starts `Publish Release` automatically.
+
+If publish fails after merge, rerun `Publish Release` manually with the same version.
 
 That workflow will:
 
+- validate the merged release commit
 - build release binaries
 - publish crates.io and npm packages
 - tag `v<version>`
-- create the GitHub Release
+- create or update the GitHub Release
 
 ## Notes
 
 - `README.md` must keep the exact `cargo install jj-navi --version ...` line because release prepare updates it in place
-- fragments are deleted by the `release-prepare` flow after they are rolled into a release PR
 - npm publishing expects trusted publishing to be configured for the `jj-navi*` packages
+- release prep reads live merged PR titles and labels at release time

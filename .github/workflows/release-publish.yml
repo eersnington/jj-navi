@@ -1,18 +1,21 @@
 name: Publish Release
 
 on:
+  pull_request_target:
+    types: [closed]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish"
+        description: "Version to publish again"
         required: true
         type: string
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: release-publish-${{ inputs.version }}
+  group: release-publish
   cancel-in-progress: false
 
 env:
@@ -20,98 +23,177 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  validate:
+  preflight:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      should_publish: ${{ steps.preflight.outputs.should_publish }}
+      release_ref: ${{ steps.preflight.outputs.release_ref }}
+      version: ${{ steps.preflight.outputs.version }}
+      tag: ${{ steps.preflight.outputs.tag }}
 
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Verify main branch
+        if: github.event_name == 'workflow_dispatch'
         run: |
           if [ "${{ github.ref_name }}" != "main" ]; then
             echo "::error::Run Publish Release from main"
             exit 1
           fi
 
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Fetch release tags
+        run: git fetch --force --tags origin
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Normalize version
-        id: version
+      - name: Resolve publish target
+        id: preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${{ inputs.version }}"
-          VERSION="${VERSION#v}"
-          if ! npx --yes semver "$VERSION" > /dev/null 2>&1; then
-            echo "::error::Invalid semver: $VERSION"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
 
-      - name: Validate release files
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ steps.version.outputs.version }}"
+          semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
+          output_path = os.environ["GITHUB_OUTPUT"]
 
-      - name: Check tag state
-        run: |
-          git fetch --force --tags origin
-          TAG="${{ steps.version.outputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
-              exit 1
-            fi
-          fi
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          def is_ancestor(ancestor: str, descendant: str) -> bool:
+              return subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0
+
+          def gh_api(path: str) -> list[dict[str, object]]:
+              output = subprocess.check_output(["gh", "api", "--paginate", "--slurp", path], text=True)
+              pages = json.loads(output)
+              items: list[dict[str, object]] = []
+              for page in pages:
+                  items.extend(page)
+              return items
+
+          def release_branch_version(pr: dict[str, object]) -> str | None:
+              user = pr.get("user")
+              if not isinstance(user, dict):
+                  return None
+              if (
+                  user.get("login") != "github-actions[bot]"
+                  or user.get("type") != "Bot"
+                  or user.get("id") != 41898282
+              ):
+                  return None
+
+              head = pr.get("head")
+              if not isinstance(head, dict):
+                  return None
+              ref = head.get("ref")
+              if not isinstance(ref, str) or not ref.startswith("release/v"):
+                  return None
+
+              head_repo = head.get("repo")
+              if not isinstance(head_repo, dict):
+                  return None
+              if head_repo.get("full_name") != os.environ["GITHUB_REPOSITORY"]:
+                  return None
+              if head_repo.get("fork") is not False:
+                  return None
+
+              version = ref[len("release/v") :].strip()
+              if not semver_re.fullmatch(version):
+                  return None
+
+              base = pr.get("base")
+              if not isinstance(base, dict) or base.get("ref") != "main":
+                  return None
+              title = pr.get("title")
+              if not isinstance(title, str) or not title.startswith("release: v"):
+                  return None
+              return version
+
+          def write_outputs(values: dict[str, str]) -> None:
+              with open(output_path, "a", encoding="utf-8") as handle:
+                  for key, value in values.items():
+                      handle.write(f"{key}={value}\n")
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          if event_name == "pull_request_target":
+              with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+                  event = json.load(handle)
+              pr = event.get("pull_request")
+              if not isinstance(pr, dict) or not pr.get("merged"):
+                  write_outputs({"should_publish": "false"})
+                  sys.exit(0)
+
+              version = release_branch_version(pr)
+              merge_commit_sha = pr.get("merge_commit_sha")
+              if version is None or not isinstance(merge_commit_sha, str) or not is_ancestor(merge_commit_sha, "HEAD"):
+                  write_outputs({"should_publish": "false"})
+                  sys.exit(0)
+
+              write_outputs(
+                  {
+                      "should_publish": "true",
+                      "release_ref": merge_commit_sha,
+                      "version": version,
+                      "tag": f"v{version}",
+                  }
+              )
+              sys.exit(0)
+
+          if event_name != "workflow_dispatch":
+              sys.exit(f"unsupported event: {event_name}")
+
+          version = os.environ["RELEASE_VERSION"]
+          if not semver_re.fullmatch(version):
+              sys.exit(f"invalid semver: {version}")
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          closed_pulls = gh_api(f"repos/{repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100")
+          matches = []
+          for pr in closed_pulls:
+              if not pr.get("merged_at"):
+                  continue
+              if release_branch_version(pr) != version:
+                  continue
+              merge_commit_sha = pr.get("merge_commit_sha")
+              if not isinstance(merge_commit_sha, str) or not is_ancestor(merge_commit_sha, "HEAD"):
+                  continue
+              matches.append(merge_commit_sha)
+
+          if len(matches) != 1:
+              sys.exit(f"expected exactly one merged release PR for v{version}")
+
+          write_outputs(
+              {
+                  "should_publish": "true",
+                  "release_ref": matches[0],
+                  "version": version,
+                  "tag": f"v{version}",
+              }
+          )
+          PY
 
   test:
-    needs: validate
+    needs: preflight
+    if: needs.preflight.outputs.should_publish == 'true'
     uses: ./.github/workflows/test.yml
-
-  tag:
-    needs: [validate, test]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      release_ref: ${{ steps.release.outputs.release_ref }}
-      version: ${{ needs.validate.outputs.version }}
-      tag: ${{ needs.validate.outputs.tag }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Create release tag if needed
-        id: release
-        run: |
-          git fetch --force --tags origin
-          TAG="${{ needs.validate.outputs.tag }}"
-          echo "release_ref=$TAG" >> "$GITHUB_OUTPUT"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
-            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $GITHUB_SHA"
-              exit 1
-            fi
-            exit 0
-          fi
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "$TAG"
+    with:
+      checkout-ref: ${{ needs.preflight.outputs.release_ref }}
 
   build:
-    needs: tag
+    needs: [preflight, test]
+    if: needs.preflight.outputs.should_publish == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -145,7 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.tag.outputs.release_ref }}
+          ref: ${{ needs.preflight.outputs.release_ref }}
           persist-credentials: false
 
       - name: Install Rust
@@ -196,19 +278,51 @@ jobs:
           path: ${{ runner.temp }}/build/${{ matrix.platform }}
           if-no-files-found: error
 
-  publish-crates:
-    needs: tag
+  publish:
+    needs: [preflight, test, build]
+    if: needs.preflight.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     environment: release
 
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.tag.outputs.release_ref }}
+          ref: ${{ needs.preflight.outputs.release_ref }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch release tags
+        run: git fetch --force --tags origin
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate release files
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- validate "${{ needs.preflight.outputs.version }}"
+
+      - name: Create release tag if needed
+        run: |
+          TAG="${{ needs.preflight.outputs.tag }}"
+          RELEASE_REF="${{ needs.preflight.outputs.release_ref }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-list -n 1 "$TAG")
+            if [ "$TAG_COMMIT" != "$RELEASE_REF" ]; then
+              echo "::error::Tag $TAG already exists at $TAG_COMMIT, expected $RELEASE_REF"
+              exit 1
+            fi
+            exit 0
+          fi
+          git tag "$TAG" "$RELEASE_REF"
+          git push origin "$TAG"
 
       - name: Publish crates.io
         env:
@@ -228,26 +342,6 @@ jobs:
           fi
           exit "$status"
 
-  publish-npm:
-    needs: [tag, build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    environment: release
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.tag.outputs.release_ref }}
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
       - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -255,18 +349,21 @@ jobs:
 
       - name: Compute release metadata
         run: |
-          VERSION="${{ needs.tag.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             DIST_TAG="${VERSION#*-}"
             DIST_TAG="${DIST_TAG%%.*}"
+            PRERELEASE="true"
           else
             DIST_TAG="latest"
+            PRERELEASE="false"
           fi
           echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+          echo "PRERELEASE=$PRERELEASE" >> "$GITHUB_ENV"
 
       - name: Stage npm packages
         run: |
-          VERSION="${{ needs.tag.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           ARTIFACTS_DIR="$RUNNER_TEMP/artifacts"
           NPM_STAGE_DIR="$RUNNER_TEMP/npm"
           rm -rf "$NPM_STAGE_DIR"
@@ -280,7 +377,7 @@ jobs:
 
       - name: Publish npm platform packages
         run: |
-          VERSION="${{ needs.tag.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           NPM_STAGE_DIR="$RUNNER_TEMP/npm"
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             PACKAGE_NAME="jj-navi-$platform"
@@ -293,42 +390,12 @@ jobs:
 
       - name: Publish npm wrapper package
         run: |
-          VERSION="${{ needs.tag.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           if npm view "jj-navi@$VERSION" version >/dev/null 2>&1; then
             echo "jj-navi@$VERSION already published, skipping"
             exit 0
           fi
           npm publish "$RUNNER_TEMP/npm/jj-navi" --tag "$DIST_TAG" --provenance --access public
-
-  github-release:
-    needs: [tag, build, publish-crates, publish-npm]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.tag.outputs.release_ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: ${{ runner.temp }}/artifacts
-
-      - name: Compute release metadata
-        run: |
-          VERSION="${{ needs.tag.outputs.version }}"
-          if [[ "$VERSION" == *-* ]]; then
-            echo "PRERELEASE=true" >> "$GITHUB_ENV"
-          else
-            echo "PRERELEASE=false" >> "$GITHUB_ENV"
-          fi
 
       - name: Create release archives
         run: |
@@ -349,13 +416,13 @@ jobs:
           (cd "$RELEASE_DIR" && sha256sum *.tar.gz > checksums-sha256.txt)
 
       - name: Write release notes
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "${{ needs.tag.outputs.version }}" > "$RUNNER_TEMP/release/release-notes.md"
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- notes "${{ needs.preflight.outputs.version }}" > "$RUNNER_TEMP/release/release-notes.md"
 
       - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ needs.tag.outputs.tag }}"
+          TAG="${{ needs.preflight.outputs.tag }}"
           RELEASE_DIR="$RUNNER_TEMP/release"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TAG" --notes-file "$RELEASE_DIR/release-notes.md"

@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      checkout-ref:
+        required: false
+        type: string
 
 env:
   CARGO_INCREMENTAL: 0
@@ -20,6 +24,73 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
+
+      - name: Check release label
+        if: github.event_name == 'pull_request'
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          release_labels = {
+              "release:major",
+              "release:minor",
+              "release:patch",
+              "release:none",
+          }
+          release_help = (
+              "release:major = breaking user-facing change; "
+              "release:minor = new user-facing feature; "
+              "release:patch = user-facing fix or improvement; "
+              "release:none = not user-facing"
+          )
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+              event = json.load(handle)
+
+          pr = event["pull_request"]
+          user = pr.get("user")
+          head = pr.get("head")
+          head_repo = head.get("repo") if isinstance(head, dict) else None
+          base = pr.get("base")
+          if (
+              isinstance(user, dict)
+              and user.get("login") == "github-actions[bot]"
+              and user.get("type") == "Bot"
+              and user.get("id") == 41898282
+              and isinstance(base, dict)
+              and base.get("ref") == "main"
+              and isinstance(head, dict)
+              and isinstance(head.get("ref"), str)
+              and head["ref"].startswith("release/v")
+              and isinstance(head_repo, dict)
+              and head_repo.get("full_name") == os.environ["GITHUB_REPOSITORY"]
+              and head_repo.get("fork") is False
+              and isinstance(pr.get("title"), str)
+              and pr["title"].startswith("release: v")
+          ):
+              raise SystemExit(0)
+
+          labels = {
+              label["name"]
+              for label in pr.get("labels", [])
+              if isinstance(label.get("name"), str)
+          }
+          selected = sorted(labels & release_labels)
+          if len(selected) == 0:
+              sys.exit(
+                  "missing release label: add exactly one of "
+                  f"release:major, release:minor, release:patch, release:none. {release_help}"
+              )
+          if len(selected) > 1:
+              sys.exit(
+                  "too many release labels: keep exactly one of "
+                  f"release:major, release:minor, release:patch, release:none; found {selected}. {release_help}"
+              )
+          PY
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -65,8 +136,8 @@ jobs:
           cmp README.md "$OUTPUT_PATH"
           cmp README.md npm/jj-navi/README.md
 
-      - name: Smoke test fragment command
-        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- "smoke test fragment" -s ci --dry-run
+      - name: Smoke test release CLI help
+        run: cargo run --manifest-path xtask/Cargo.toml --bin navi-release -- --help
 
       - name: Smoke test npm platform package generation
         run: |
