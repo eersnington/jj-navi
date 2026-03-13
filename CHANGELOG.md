@@ -2,6 +2,12 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.1.1 - 2026-03-13
+
+### Patch
+
+- fix remove safety and tighten workspace handling (#29, @eersnington)
+
 ## v0.1.0 - 2026-03-12
 
 ### V1
@@ -35,6 +41,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 
