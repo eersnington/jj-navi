@@ -1,0 +1,17 @@
+use std::io;
+
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub(crate) enum ToolError {
+    #[error("{0}")]
+    Message(String),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Semver(#[from] semver::Error),
+    #[error(transparent)]
+    Toml(#[from] toml_edit::TomlError),
+}
