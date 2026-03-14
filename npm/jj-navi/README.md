@@ -77,6 +77,12 @@ navi config shell install [--shell <bash|zsh>]
 - commit short id
 - first-line commit message
 
+When `jj` cannot resolve a workspace path, `navi` falls back to validated repo-scoped metadata and deterministic path planning instead of failing the whole command.
+
+- `[inferred]` means the path came from a validated `navi` fallback instead of a JJ-recorded path
+- `[missing]` means the best known workspace path does not exist on disk anymore
+- `[stale]` means a candidate path exists but no longer validates as the requested workspace in the current repo
+
 ## Repo config
 
 Repo-scoped config and metadata live in shared Jujutsu storage:
@@ -94,6 +100,8 @@ Default workspace path template:
 
 ## Notes
 
+- `switch` can recover from missing JJ workspace-path records when `navi` can validate a fallback path
+- `switch` only warns when it had to use a weaker template-based fallback
 - `remove` requires an explicit workspace name and refuses to remove the current workspace
 - `remove` is forget-only by default; it does not delete workspace directories
 - supported shells today: `bash`, `zsh`

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::output::write_cd_directive;
 use crate::repo::NaviWorkspace;
-use crate::types::WorkspaceName;
+use crate::types::{WorkspaceName, WorkspacePathState};
 use crate::{Error, Result};
 
 /// Run the `switch` command.
@@ -20,13 +20,37 @@ pub fn run_switch(
     let workspace = WorkspaceName::new(workspace.to_owned())?;
     let repo = NaviWorkspace::open(path)?;
 
-    let target_root = if repo.workspace_exists(&workspace)? {
-        repo.actual_workspace_root(&workspace)?
+    let resolved_path = if repo.workspace_exists(&workspace)? {
+        repo.resolve_workspace_path(&workspace)?
     } else if create {
-        repo.create_workspace(&workspace, revision)?
+        let target_root = repo.create_workspace(&workspace, revision)?;
+        let display_path = repo.display_path_for_switch(&target_root);
+        if !write_cd_directive(&display_path)? {
+            println!("{}", display_path.display());
+        }
+        return Ok(());
     } else {
         return Err(Error::WorkspaceDoesNotExist);
     };
+
+    if !resolved_path.is_switchable() {
+        let display_path = repo.display_path_for_switch(&resolved_path.path);
+        return Err(Error::WorkspaceDirectoryUnavailable {
+            workspace: workspace.as_str().to_owned(),
+            path: display_path.display().to_string(),
+        });
+    }
+
+    let target_root = resolved_path.path;
+    if resolved_path.state == WorkspacePathState::Inferred
+        && resolved_path.source.needs_switch_warning()
+    {
+        let display_path = repo.display_path_for_switch(&target_root);
+        eprintln!(
+            "warning: jj could not resolve this workspace path; using navi fallback\nhint: resolved to {}",
+            display_path.display()
+        );
+    }
 
     let display_path = repo.display_path_for_switch(&target_root);
     if !write_cd_directive(&display_path)? {

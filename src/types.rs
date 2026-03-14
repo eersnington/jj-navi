@@ -182,10 +182,27 @@ pub struct WorkspaceListEntry {
     pub name: WorkspaceName,
     /// Display path shown in the table.
     pub path: PathBuf,
+    /// Whether the rendered path comes from `navi` fallback logic.
+    pub path_is_inferred: bool,
+    /// How trustworthy the rendered path is.
+    pub path_state: WorkspacePathState,
     /// Short commit identifier.
     pub commit_id: String,
     /// First-line commit description.
     pub message: String,
+}
+
+/// Display state for a workspace path rendered by `navi list`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspacePathState {
+    /// Path is confirmed from the current workspace or JJ.
+    Confirmed,
+    /// Path was inferred from validated `navi` fallback data.
+    Inferred,
+    /// Best known path does not exist on disk.
+    Missing,
+    /// Best known path exists but no longer validates.
+    Stale,
 }
 
 fn validate_workspace_template(value: &str) -> Result<()> {

@@ -21,6 +21,7 @@ pub(crate) struct WorkspaceMetadataStore {
 #[derive(Clone)]
 struct WorkspaceMetadataRecord {
     name: WorkspaceName,
+    path: PathBuf,
     created_by_navi: bool,
     created_at: OffsetDateTime,
     template: WorkspaceTemplate,
@@ -36,6 +37,8 @@ struct WorkspaceMetadataFile {
 #[derive(Deserialize, Serialize)]
 struct WorkspaceMetadataRecordFile {
     name: String,
+    #[serde(default)]
+    path: Option<String>,
     created_by_navi: bool,
     created_at: String,
     template: String,
@@ -72,11 +75,13 @@ impl WorkspaceMetadataStore {
     pub(crate) fn record_workspace(
         &mut self,
         workspace: &WorkspaceName,
+        path: &Path,
         template: &WorkspaceTemplate,
         revision: Option<&str>,
     ) {
         let new_record = WorkspaceMetadataRecord {
             name: workspace.clone(),
+            path: path.to_path_buf(),
             created_by_navi: true,
             created_at: OffsetDateTime::now_utc(),
             template: template.clone(),
@@ -100,6 +105,19 @@ impl WorkspaceMetadataStore {
         self.records.retain(|record| record.name != *workspace);
     }
 
+    pub(crate) fn workspace_path(&self, workspace: &WorkspaceName) -> Option<PathBuf> {
+        self.records
+            .iter()
+            .find(|record| record.name == *workspace)
+            .and_then(|record| {
+                if record.path.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(record.path.clone())
+                }
+            })
+    }
+
     pub(crate) fn save(&self) -> Result<()> {
         let parent = self
             .path
@@ -117,6 +135,11 @@ impl WorkspaceMetadataStore {
                 .map(|record| {
                     Ok(WorkspaceMetadataRecordFile {
                         name: record.name.as_str().to_owned(),
+                        path: if record.path.as_os_str().is_empty() {
+                            None
+                        } else {
+                            Some(record.path.to_string_lossy().into_owned())
+                        },
                         created_by_navi: record.created_by_navi,
                         created_at: record.created_at.format(&Rfc3339).map_err(|error| {
                             Error::InvalidWorkspaceMetadata {
@@ -150,6 +173,7 @@ fn parse_record_file(
             path: path.to_path_buf(),
             message: error.to_string(),
         })?,
+        path: record.path.map_or_else(PathBuf::new, PathBuf::from),
         created_by_navi: record.created_by_navi,
         created_at: OffsetDateTime::parse(&record.created_at, &Rfc3339).map_err(|error| {
             Error::InvalidWorkspaceMetadata {

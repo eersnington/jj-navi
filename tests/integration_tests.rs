@@ -93,6 +93,7 @@ fn switch_create_creates_workspace() {
     assert!(repo.navi_metadata_path().is_file());
     let metadata = std::fs::read_to_string(repo.navi_metadata_path()).expect("read navi metadata");
     assert!(metadata.contains("name = \"feature-auth\""));
+    assert!(metadata.contains("path = \""));
     assert!(metadata.contains("created_by_navi = true"));
     assert!(metadata.contains("template = \"../{repo}.{workspace}\""));
     assert!(metadata.contains("revision = \"\""));
@@ -207,6 +208,81 @@ fn switch_uses_actual_jj_workspace_path_for_existing_workspace() {
                 .file_name()
                 .expect("custom workspace dir")
                 .to_string_lossy()
+        )));
+}
+
+#[test]
+fn switch_uses_metadata_fallback_when_jj_workspace_path_is_missing() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn switch_uses_template_fallback_with_warning_when_metadata_is_absent() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::contains(
+            "warning: jj could not resolve this workspace path; using navi fallback",
+        ));
+}
+
+#[test]
+fn switch_fails_with_last_known_path_when_fallback_directory_is_missing() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    repo.clear_workspace_store_index();
+
+    let feature_path =
+        repo.path()
+            .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
+    std::fs::remove_dir_all(&feature_path).expect("remove workspace dir");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: workspace 'feature-auth' exists, but its directory could not be resolved",
+        ))
+        .stderr(predicate::str::contains(format!(
+            "hint: last known path: ../{}.feature-auth",
+            repo.repo_name()
         )));
 }
 
@@ -571,9 +647,44 @@ fn list_prints_workspace_table() {
 }
 
 #[test]
-fn list_reports_missing_workspace_directory_from_jj() {
+fn list_uses_current_workspace_root_when_jj_workspace_paths_are_missing() {
     let repo = TempJjRepo::new();
-    let feature_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("@       default"))
+        .stdout(predicate::str::contains("feature-auth"))
+        .stdout(predicate::str::contains(format!(
+            "../{}.feature-auth [inferred]",
+            repo.repo_name()
+        )));
+}
+
+#[test]
+fn list_reports_missing_workspace_directory_from_inferred_path() {
+    let repo = TempJjRepo::new();
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    repo.clear_workspace_store_index();
+
+    let feature_path =
+        repo.path()
+            .with_file_name(format!("{}.{}", repo.repo_name(), "feature-auth"));
     let feature_name = feature_path.file_name().expect("workspace dir name");
     let mut moved_name = feature_name.to_os_string();
     moved_name.push(".moved");
@@ -584,10 +695,36 @@ fn list_reports_missing_workspace_directory_from_jj() {
         .current_dir(repo.path())
         .args(["list"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "error: jj command failed: jj workspace root --name feature-auth",
-        ));
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "../{}.feature-auth [inferred] [missing]",
+            repo.repo_name()
+        )));
+}
+
+#[test]
+fn list_reports_stale_workspace_directory_from_jj_path_without_inferred_marker() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+    let feature_name = feature_path.file_name().expect("workspace dir name");
+    let mut moved_name = feature_name.to_os_string();
+    moved_name.push(".moved");
+    let moved_path = feature_path.with_file_name(moved_name);
+
+    std::fs::rename(&feature_path, &moved_path).expect("move workspace dir");
+    std::fs::create_dir(&feature_path).expect("create stale workspace dir");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "../{}.feature-auth [stale]",
+            repo.repo_name()
+        )))
+        .stdout(predicate::str::contains("feature-auth"))
+        .stdout(predicate::str::contains("[inferred] [stale]").not());
 }
 
 #[test]
