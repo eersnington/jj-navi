@@ -2,6 +2,12 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.1.3 - 2026-03-14
+
+### Patch
+
+- fix: recover workspace paths when jj path lookup fails (#37, @eersnington)
+
 ## v0.1.2 - 2026-03-14
 
 ### Patch
@@ -47,6 +53,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 

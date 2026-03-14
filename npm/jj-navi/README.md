@@ -24,7 +24,7 @@ repo/
 npm install -g jj-navi
 
 # cargo
-cargo install jj-navi --version 0.1.2
+cargo install jj-navi --version 0.1.3
 ```
 
 Binary names:
