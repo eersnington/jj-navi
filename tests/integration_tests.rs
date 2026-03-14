@@ -298,7 +298,56 @@ fn config_shell_init_rejects_unsupported_shell() {
         .args(["config", "shell", "init", "fish"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("error: unsupported shell 'fish'"));
+        .stderr(predicate::str::contains("invalid value 'fish'"))
+        .stderr(predicate::str::contains("[possible values: bash, zsh]"));
+}
+
+#[test]
+fn config_shell_init_help_lists_supported_shells() {
+    command("navi")
+        .args(["config", "shell", "init", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Supported shell"))
+        .stdout(predicate::str::contains("bash"))
+        .stdout(predicate::str::contains("zsh"));
+}
+
+#[test]
+fn config_shell_init_missing_shell_mentions_supported_values() {
+    command("navi")
+        .args(["config", "shell", "init"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: shell name required"))
+        .stderr(predicate::str::contains("hint: use one of: bash, zsh"))
+        .stderr(predicate::str::contains("bash"))
+        .stderr(predicate::str::contains("zsh"));
+}
+
+#[test]
+fn config_help_describes_shell_integration_commands() {
+    command("navi")
+        .args(["config", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Shell integration and future config commands",
+        ))
+        .stdout(predicate::str::contains(
+            "shell  Shell integration commands",
+        ));
+}
+
+#[test]
+fn top_level_help_describes_config_command() {
+    command("navi")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "config  Shell integration and future config commands",
+        ));
 }
 
 #[test]
