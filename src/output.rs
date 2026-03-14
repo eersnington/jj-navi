@@ -1,8 +1,11 @@
 //! Output rendering helpers for CLI-facing text and shell integration.
 
+use anstyle::{Ansi256Color, Effects, Style};
+use clap::builder::styling::Styles;
 use std::fmt::Write;
 use std::fs::OpenOptions;
 use std::io::Write as _;
+use std::io::{IsTerminal, stderr};
 use std::path::Path;
 
 use crate::types::{ShellKind, WorkspaceListEntry};
@@ -10,6 +13,8 @@ use crate::types::{ShellKind, WorkspaceListEntry};
 const WORKSPACE_HEADER: &str = "workspace";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
+const SOFT_YELLOW: Ansi256Color = Ansi256Color(179);
+const SOFT_GREEN: Ansi256Color = Ansi256Color(108);
 
 /// Environment variable used by shell integration to pass a directive file.
 pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
@@ -17,6 +22,45 @@ pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
 pub const MANAGED_BLOCK_START: &str = "# >>> jj-navi shell init >>>";
 /// Marker for the end of the managed shell block.
 pub const MANAGED_BLOCK_END: &str = "# <<< jj-navi shell init <<<";
+
+/// Clap styles for restrained help and parser output.
+#[must_use]
+pub fn clap_styles() -> Styles {
+    Styles::styled()
+        .header(
+            Style::new()
+                .fg_color(Some(SOFT_YELLOW.into()))
+                .effects(Effects::BOLD),
+        )
+        .usage(
+            Style::new()
+                .fg_color(Some(SOFT_YELLOW.into()))
+                .effects(Effects::BOLD),
+        )
+        .literal(Style::new().fg_color(Some(SOFT_GREEN.into())))
+        .placeholder(Style::new().fg_color(Some(SOFT_GREEN.into())))
+        .error(
+            Style::new()
+                .fg_color(Some(SOFT_YELLOW.into()))
+                .effects(Effects::BOLD),
+        )
+        .valid(Style::new().fg_color(Some(SOFT_GREEN.into())))
+        .invalid(
+            Style::new()
+                .fg_color(Some(SOFT_YELLOW.into()))
+                .effects(Effects::BOLD),
+        )
+}
+
+/// Render a human-facing error message with restrained semantic colors.
+#[must_use]
+pub fn render_error_message(message: &str) -> String {
+    message
+        .lines()
+        .map(colorize_error_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Render a table of workspaces for `navi list`.
 #[must_use]
@@ -131,6 +175,42 @@ pub fn escape_shell_single_quotes(value: &str) -> String {
     value.replace('\'', "'\\''")
 }
 
+fn colorize_error_line(line: &str) -> String {
+    if let Some(rest) = line.strip_prefix("error:") {
+        return format!("{}{}", styled_prefix("error:", SOFT_YELLOW), rest);
+    }
+
+    if let Some(rest) = line.strip_prefix("warning:") {
+        return format!("{}{}", styled_prefix("warning:", SOFT_YELLOW), rest);
+    }
+
+    if let Some(rest) = line.strip_prefix("hint:") {
+        return format!("{}{}", styled_prefix("hint:", SOFT_GREEN), rest);
+    }
+
+    line.to_owned()
+}
+
+fn styled_prefix(prefix: &str, color: Ansi256Color) -> String {
+    if !color_enabled() {
+        return prefix.to_owned();
+    }
+
+    format!(
+        "\u{1b}[38;5;{}m{}\u{1b}[0m",
+        ansi_256_color_code(color),
+        prefix
+    )
+}
+
+fn color_enabled() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && stderr().is_terminal()
+}
+
+const fn ansi_256_color_code(color: Ansi256Color) -> u8 {
+    color.0
+}
+
 struct RenderedWorkspaceEntry<'a> {
     is_current: bool,
     name: &'a str,
@@ -147,7 +227,8 @@ mod tests {
 
     use super::{
         DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
-        render_shell_init, render_shell_install_block, render_workspace_table,
+        render_error_message, render_shell_init, render_shell_install_block,
+        render_workspace_table,
     };
 
     #[test]
@@ -201,5 +282,13 @@ mod tests {
             escape_shell_single_quotes("../space dir/feature-auth's"),
             "../space dir/feature-auth'\\''s"
         );
+    }
+
+    #[test]
+    fn renders_error_message_without_losing_prefixes() {
+        let rendered = render_error_message("error: bad\nhint: try again");
+
+        assert!(rendered.contains("error:"));
+        assert!(rendered.contains("hint:"));
     }
 }

@@ -13,9 +13,9 @@ use crate::types::ShellKind;
 ///
 /// # Errors
 ///
-/// Returns an error if the shell is not supported.
-pub fn run_shell_init(command_name: &str, shell: &str) -> Result<()> {
-    let shell = ShellKind::new(shell)?;
+/// Returns an error if the shell is missing.
+pub fn run_shell_init(command_name: &str, shell: Option<ShellKind>) -> Result<()> {
+    let shell = shell.ok_or(Error::ShellRequired)?;
 
     print!("{}", render_shell_init(command_name, shell));
     Ok(())
@@ -27,9 +27,9 @@ pub fn run_shell_init(command_name: &str, shell: &str) -> Result<()> {
 ///
 /// Returns an error if the shell is not supported, if shell detection fails,
 /// or if the shell rc file cannot be updated.
-pub fn run_shell_install(command_name: &str, shell: Option<&str>) -> Result<()> {
+pub fn run_shell_install(command_name: &str, shell: Option<ShellKind>) -> Result<()> {
     let shell = match shell {
-        Some(shell) => ShellKind::new(shell)?,
+        Some(shell) => shell,
         None => ShellKind::detect()?,
     };
     let rc_path = shell_rc_path(shell)?;

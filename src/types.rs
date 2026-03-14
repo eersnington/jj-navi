@@ -1,5 +1,6 @@
 //! Core domain and presentation types used by `jj-navi`.
 
+use clap::ValueEnum;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -110,7 +111,7 @@ impl Default for WorkspaceTemplate {
 }
 
 /// Shell kinds supported by shell integration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum ShellKind {
     /// Bash shell.
     Bash,

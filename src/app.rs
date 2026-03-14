@@ -5,9 +5,12 @@ use std::process::ExitCode;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::cli;
+use crate::output::{clap_styles, render_error_message};
+use crate::types::ShellKind;
 
 #[derive(Parser)]
 #[command(about = "Workspace navigator for Jujutsu")]
+#[command(arg_required_else_help = true)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -16,19 +19,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Switch to an existing workspace or create one with --create")]
     Switch {
-        #[arg(long, short = 'c')]
+        #[arg(long, short = 'c', help = "Create the workspace if it does not exist")]
         create: bool,
 
-        #[arg(long)]
+        #[arg(long, help = "Revision to base a newly created workspace on")]
         revision: Option<String>,
 
+        #[arg(help = "Workspace name")]
         workspace: String,
     },
+    #[command(about = "List known workspaces with path and commit details")]
     List,
+    #[command(about = "Forget a non-current workspace")]
     Remove {
+        #[arg(help = "Workspace name to forget")]
         workspace: String,
     },
+    #[command(about = "Shell integration and future config commands")]
+    #[command(arg_required_else_help = true)]
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
@@ -37,6 +47,8 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
+    #[command(about = "Shell integration commands")]
+    #[command(arg_required_else_help = true)]
     Shell {
         #[command(subcommand)]
         command: ShellCommands,
@@ -45,12 +57,15 @@ enum ConfigCommands {
 
 #[derive(Subcommand)]
 enum ShellCommands {
+    #[command(about = "Print shell integration script for a supported shell")]
     Init {
-        shell: String,
+        #[arg(value_name = "SHELL", help = "Supported shell", value_enum)]
+        shell: Option<ShellKind>,
     },
+    #[command(about = "Install the managed shell integration block into your rc file")]
     Install {
-        #[arg(long)]
-        shell: Option<String>,
+        #[arg(long, help = "Shell to install for; defaults to $SHELL", value_enum)]
+        shell: Option<ShellKind>,
     },
 }
 
@@ -79,12 +94,12 @@ pub fn main(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) ->
         Err(AppError::Cli(error)) => {
             let exit_code = error.exit_code();
             if error.print().is_err() {
-                eprintln!("{error}");
+                eprintln!("{}", render_error_message(&error.to_string()));
             }
             ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
         }
         Err(AppError::Domain(error)) => {
-            eprintln!("{error}");
+            eprintln!("{}", render_error_message(&error.to_string()));
             ExitCode::FAILURE
         }
     }
@@ -104,9 +119,9 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
         Commands::Remove { workspace } => cli::run_remove(&path, &workspace)?,
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {
-                ShellCommands::Init { shell } => cli::run_shell_init(bin_name, &shell)?,
+                ShellCommands::Init { shell } => cli::run_shell_init(bin_name, shell)?,
                 ShellCommands::Install { shell } => {
-                    cli::run_shell_install(bin_name, shell.as_deref())?;
+                    cli::run_shell_install(bin_name, shell)?;
                 }
             },
         },
@@ -119,8 +134,12 @@ fn parse_cli(
     bin_name: &'static str,
     args: impl IntoIterator<Item = OsString>,
 ) -> Result<Cli, clap::Error> {
-    let mut command = Cli::command();
+    let mut command = build_command();
     command = command.name(bin_name);
     let matches = command.try_get_matches_from(args)?;
     Cli::from_arg_matches(&matches)
+}
+
+fn build_command() -> clap::Command {
+    Cli::command().styles(clap_styles())
 }

@@ -82,6 +82,10 @@ pub enum Error {
     #[error("error: unsupported shell '{0}'")]
     UnsupportedShell(String),
 
+    /// A shell argument is required for shell-init generation.
+    #[error("error: shell name required\nhint: use one of: bash, zsh")]
+    ShellRequired,
+
     /// The current shell could not be inferred from `$SHELL`.
     #[error("error: unable to detect shell from $SHELL")]
     ShellDetection,
