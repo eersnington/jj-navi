@@ -1,8 +1,8 @@
 name: Publish Release
 
 on:
-  pull_request_target:
-    types: [closed]
+  repository_dispatch:
+    types: [release-publish-requested]
   workflow_dispatch:
     inputs:
       version:
@@ -45,9 +45,6 @@ jobs:
             exit 1
           fi
 
-      - name: Fetch release tags
-        run: git fetch --force --tags origin
-
       - name: Resolve publish target
         id: preflight
         env:
@@ -82,6 +79,14 @@ jobs:
               for page in pages:
                   items.extend(page)
               return items
+
+          def read_dispatch_payload() -> dict[str, object]:
+              with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+                  event = json.load(handle)
+              payload = event.get("client_payload")
+              if not isinstance(payload, dict):
+                  sys.exit("repository_dispatch client_payload missing")
+              return payload
 
           def release_branch_version(pr: dict[str, object]) -> str | None:
               user = pr.get("user")
@@ -127,26 +132,24 @@ jobs:
                       handle.write(f"{key}={value}\n")
 
           event_name = os.environ["GITHUB_EVENT_NAME"]
-          if event_name == "pull_request_target":
-              with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-                  event = json.load(handle)
-              pr = event.get("pull_request")
-              if not isinstance(pr, dict) or not pr.get("merged"):
-                  write_outputs({"should_publish": "false"})
-                  sys.exit(0)
-
-              version = release_branch_version(pr)
-              merge_commit_sha = pr.get("merge_commit_sha")
-              if version is None or not isinstance(merge_commit_sha, str) or not is_ancestor(merge_commit_sha, "HEAD"):
-                  write_outputs({"should_publish": "false"})
-                  sys.exit(0)
+          if event_name == "repository_dispatch":
+              payload = read_dispatch_payload()
+              version = payload.get("version")
+              tag = payload.get("tag")
+              release_ref = payload.get("release_ref")
+              if not isinstance(version, str) or not semver_re.fullmatch(version):
+                  sys.exit("repository_dispatch version missing or invalid")
+              if tag != f"v{version}":
+                  sys.exit("repository_dispatch tag mismatch")
+              if not isinstance(release_ref, str) or not is_ancestor(release_ref, "HEAD"):
+                  sys.exit("repository_dispatch release_ref missing or not on main")
 
               write_outputs(
                   {
                       "should_publish": "true",
-                      "release_ref": merge_commit_sha,
+                      "release_ref": release_ref,
                       "version": version,
-                      "tag": f"v{version}",
+                      "tag": tag,
                   }
               )
               sys.exit(0)
