@@ -1,0 +1,131 @@
+name: Detect Release Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CHANGELOG.md"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-detect-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve merged release PR
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          output_path = os.environ["GITHUB_OUTPUT"]
+
+          def gh_json(*args: str) -> object:
+              return json.loads(subprocess.check_output(["gh", *args], text=True))
+
+          def release_branch_version(pr: dict[str, object]) -> str | None:
+              user = pr.get("user")
+              if not isinstance(user, dict):
+                  return None
+              if (
+                  user.get("login") != "github-actions[bot]"
+                  or user.get("type") != "Bot"
+                  or user.get("id") != 41898282
+              ):
+                  return None
+
+              head = pr.get("head")
+              if not isinstance(head, dict):
+                  return None
+              ref = head.get("ref")
+              if not isinstance(ref, str) or not ref.startswith("release/v"):
+                  return None
+
+              head_repo = head.get("repo")
+              if not isinstance(head_repo, dict):
+                  return None
+              if head_repo.get("full_name") != repo:
+                  return None
+              if head_repo.get("fork") is not False:
+                  return None
+
+              version = ref[len("release/v") :].strip()
+              if not semver_re.fullmatch(version):
+                  return None
+
+              base = pr.get("base")
+              if not isinstance(base, dict) or base.get("ref") != "main":
+                  return None
+
+              title = pr.get("title")
+              if not isinstance(title, str) or not title.startswith("release: v"):
+                  return None
+
+              if pr.get("merge_commit_sha") != sha:
+                  return None
+
+              if not pr.get("merged_at"):
+                  return None
+
+              return version
+
+          pulls = gh_json(
+              "api",
+              f"repos/{repo}/commits/{sha}/pulls",
+              "-H",
+              "Accept: application/vnd.github+json",
+          )
+          if not isinstance(pulls, list):
+              sys.exit("commit pull lookup returned non-list")
+
+          match = None
+          for pr in pulls:
+              if not isinstance(pr, dict):
+                  continue
+              version = release_branch_version(pr)
+              if version is None:
+                  continue
+              match = (version, pr)
+              break
+
+          if match is None:
+              with open(output_path, "a", encoding="utf-8") as handle:
+                  handle.write("should_publish=false\n")
+              sys.exit(0)
+
+          version, _pr = match
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write("should_publish=true\n")
+              handle.write(f"version={version}\n")
+              handle.write(f"tag=v{version}\n")
+              handle.write(f"release_ref={sha}\n")
+          PY
+
+      - name: Dispatch publish workflow
+        if: steps.detect.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=release-publish-requested \
+            -f client_payload[version]="${{ steps.detect.outputs.version }}" \
+            -f client_payload[tag]="${{ steps.detect.outputs.tag }}" \
+            -f client_payload[release_ref]="${{ steps.detect.outputs.release_ref }}" >/dev/null
