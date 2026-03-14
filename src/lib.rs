@@ -6,6 +6,7 @@
 
 mod app;
 mod cli;
+pub mod doctor;
 mod error;
 pub mod output;
 mod repo;

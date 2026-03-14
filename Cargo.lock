@@ -283,6 +283,7 @@ dependencies = [
  "pathdiff",
  "predicates",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "time",

@@ -41,6 +41,7 @@ Minimum supported Node.js for npm install: `24`
 navi switch --create feature-auth
 navi switch feature-auth
 navi list
+navi doctor
 navi remove feature-auth
 ```
 
@@ -64,10 +65,21 @@ navi switch <workspace>
 navi switch --create <workspace>
 navi switch --create <workspace> --revision <revset>
 navi list
+navi doctor [--json] [--compact]
 navi remove <workspace>
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
 ```
+
+## What `doctor` checks
+
+- current workspace validity
+- repo config and workspace metadata parse health
+- missing, stale, and inferred workspace paths
+- JJ vs `navi` metadata drift
+- shell integration rc-file health
+
+Use `navi doctor --json` for pretty machine-readable output or `navi doctor --json --compact` for compact JSON.
 
 ## What `list` shows
 
@@ -105,7 +117,7 @@ Default workspace path template:
 - `remove` requires an explicit workspace name and refuses to remove the current workspace
 - `remove` is forget-only by default; it does not delete workspace directories
 - supported shells today: `bash`, `zsh`
-- fish support, hooks, `doctor`, `prune`, and cross-workspace dirty status are planned in roadmap
+- fish support, hooks, `prune`, and cross-workspace dirty status are planned in roadmap
 
 ## Maintainer notes
 

@@ -602,7 +602,7 @@ Non-goals:
 
 Current target version:
 
-- `0.0.1-alpha.2`
+- `0.1.3`
 
 Target `jj` baseline:
 

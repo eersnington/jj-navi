@@ -12,6 +12,12 @@ use super::config::navi_dir_path;
 
 const WORKSPACES_FILE: &str = "workspaces.toml";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct WorkspaceMetadataEntry {
+    pub(crate) name: WorkspaceName,
+    pub(crate) path: Option<PathBuf>,
+}
+
 #[derive(Default)]
 pub(crate) struct WorkspaceMetadataStore {
     path: PathBuf,
@@ -21,7 +27,7 @@ pub(crate) struct WorkspaceMetadataStore {
 #[derive(Clone)]
 struct WorkspaceMetadataRecord {
     name: WorkspaceName,
-    path: PathBuf,
+    path: Option<PathBuf>,
     created_by_navi: bool,
     created_at: OffsetDateTime,
     template: WorkspaceTemplate,
@@ -81,7 +87,7 @@ impl WorkspaceMetadataStore {
     ) {
         let new_record = WorkspaceMetadataRecord {
             name: workspace.clone(),
-            path: path.to_path_buf(),
+            path: Some(path.to_path_buf()),
             created_by_navi: true,
             created_at: OffsetDateTime::now_utc(),
             template: template.clone(),
@@ -105,17 +111,30 @@ impl WorkspaceMetadataStore {
         self.records.retain(|record| record.name != *workspace);
     }
 
+    pub(crate) fn contains_workspace(&self, workspace: &WorkspaceName) -> bool {
+        self.records.iter().any(|record| record.name == *workspace)
+    }
+
+    /// Return the stored metadata path for a workspace, if one exists.
+    ///
+    /// This is a path lookup only. `None` does not imply the metadata record is
+    /// missing; callers that need record presence must use
+    /// `contains_workspace()` instead.
     pub(crate) fn workspace_path(&self, workspace: &WorkspaceName) -> Option<PathBuf> {
         self.records
             .iter()
             .find(|record| record.name == *workspace)
-            .and_then(|record| {
-                if record.path.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(record.path.clone())
-                }
+            .and_then(|record| record.path.clone())
+    }
+
+    pub(crate) fn entries(&self) -> Vec<WorkspaceMetadataEntry> {
+        self.records
+            .iter()
+            .map(|record| WorkspaceMetadataEntry {
+                name: record.name.clone(),
+                path: record.path.clone(),
             })
+            .collect()
     }
 
     pub(crate) fn save(&self) -> Result<()> {
@@ -135,11 +154,8 @@ impl WorkspaceMetadataStore {
                 .map(|record| {
                     Ok(WorkspaceMetadataRecordFile {
                         name: record.name.as_str().to_owned(),
-                        path: if record.path.as_os_str().is_empty() {
-                            None
-                        } else {
-                            Some(record.path.to_string_lossy().into_owned())
-                        },
+                        path: normalized_recorded_path(record.path.as_deref())
+                            .map(|path| path.to_string_lossy().into_owned()),
                         created_by_navi: record.created_by_navi,
                         created_at: record.created_at.format(&Rfc3339).map_err(|error| {
                             Error::InvalidWorkspaceMetadata {
@@ -173,7 +189,8 @@ fn parse_record_file(
             path: path.to_path_buf(),
             message: error.to_string(),
         })?,
-        path: record.path.map_or_else(PathBuf::new, PathBuf::from),
+        path: normalized_recorded_path(record.path.as_deref().map(Path::new))
+            .map(Path::to_path_buf),
         created_by_navi: record.created_by_navi,
         created_at: OffsetDateTime::parse(&record.created_at, &Rfc3339).map_err(|error| {
             Error::InvalidWorkspaceMetadata {
@@ -197,4 +214,64 @@ fn parse_record_file(
 
 pub(crate) fn workspace_metadata_path(repo_storage_path: &Path) -> PathBuf {
     navi_dir_path(repo_storage_path).join(WORKSPACES_FILE)
+}
+
+fn normalized_recorded_path(path: Option<&Path>) -> Option<&Path> {
+    path.filter(|path| !path.as_os_str().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use time::OffsetDateTime;
+
+    use crate::types::{WorkspaceName, WorkspaceTemplate};
+
+    use super::{
+        WorkspaceMetadataRecord, WorkspaceMetadataRecordFile, WorkspaceMetadataStore,
+        normalized_recorded_path, parse_record_file,
+    };
+
+    #[test]
+    fn distinguishes_record_presence_from_recorded_path() {
+        let workspace = WorkspaceName::new("feature-auth").expect("valid workspace");
+        let store = WorkspaceMetadataStore {
+            path: PathBuf::from("workspaces.toml"),
+            records: vec![WorkspaceMetadataRecord {
+                name: workspace.clone(),
+                path: None,
+                created_by_navi: true,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                template: WorkspaceTemplate::default(),
+                revision: None,
+            }],
+        };
+
+        assert!(store.contains_workspace(&workspace));
+        assert_eq!(store.workspace_path(&workspace), None);
+    }
+
+    #[test]
+    fn normalizes_empty_recorded_path_strings() {
+        let record = parse_record_file(
+            WorkspaceMetadataRecordFile {
+                name: String::from("feature-auth"),
+                path: Some(String::new()),
+                created_by_navi: true,
+                created_at: String::from("1970-01-01T00:00:00Z"),
+                template: String::from("../{repo}.{workspace}"),
+                revision: String::new(),
+            },
+            Path::new("workspaces.toml"),
+        )
+        .expect("parse metadata record");
+
+        assert_eq!(record.path, None);
+    }
+
+    #[test]
+    fn rejects_empty_recorded_paths_when_serializing() {
+        assert_eq!(normalized_recorded_path(Some(Path::new(""))), None);
+    }
 }
