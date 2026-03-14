@@ -19,8 +19,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Resolve merged release PR
-        id: detect
+      - name: Detect and dispatch publish workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -34,7 +33,6 @@ jobs:
           semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
-          output_path = os.environ["GITHUB_OUTPUT"]
 
           def gh_json(*args: str) -> object:
               return json.loads(subprocess.check_output(["gh", *args], text=True))
@@ -105,27 +103,24 @@ jobs:
               break
 
           if match is None:
-              with open(output_path, "a", encoding="utf-8") as handle:
-                  handle.write("should_publish=false\n")
               sys.exit(0)
 
           version, _pr = match
-          with open(output_path, "a", encoding="utf-8") as handle:
-              handle.write("should_publish=true\n")
-              handle.write(f"version={version}\n")
-              handle.write(f"tag=v{version}\n")
-              handle.write(f"release_ref={sha}\n")
+          subprocess.check_call(
+              [
+                  "gh",
+                  "api",
+                  "--method",
+                  "POST",
+                  f"repos/{repo}/dispatches",
+                  "-f",
+                  "event_type=release-publish-requested",
+                  "-f",
+                  f"client_payload[version]={version}",
+                  "-f",
+                  f"client_payload[tag]=v{version}",
+                  "-f",
+                  f"client_payload[release_ref]={sha}",
+              ]
+          )
           PY
-
-      - name: Dispatch publish workflow
-        if: steps.detect.outputs.should_publish == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api \
-            --method POST \
-            "repos/${GITHUB_REPOSITORY}/dispatches" \
-            -f event_type=release-publish-requested \
-            -f client_payload[version]="${{ steps.detect.outputs.version }}" \
-            -f client_payload[tag]="${{ steps.detect.outputs.tag }}" \
-            -f client_payload[release_ref]="${{ steps.detect.outputs.release_ref }}" >/dev/null
