@@ -35,6 +35,17 @@ pub enum Error {
     #[error("error: workspace '{0}' does not exist")]
     WorkspaceNotFound(String),
 
+    /// The workspace exists, but no validated directory could be found.
+    #[error(
+        "error: workspace '{workspace}' exists, but its directory could not be resolved\nhint: last known path: {path}"
+    )]
+    WorkspaceDirectoryUnavailable {
+        /// Workspace name.
+        workspace: String,
+        /// Best-known display path.
+        path: String,
+    },
+
     /// Removing the current workspace would orphan the active directory.
     #[error("error: cannot remove current workspace\nhint: switch to another workspace first")]
     CannotRemoveCurrentWorkspace,

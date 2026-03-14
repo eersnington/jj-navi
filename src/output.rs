@@ -5,16 +5,17 @@ use clap::builder::styling::Styles;
 use std::fmt::Write;
 use std::fs::OpenOptions;
 use std::io::Write as _;
-use std::io::{IsTerminal, stderr};
+use std::io::{IsTerminal, stderr, stdout};
 use std::path::Path;
 
-use crate::types::{ShellKind, WorkspaceListEntry};
+use crate::types::{ShellKind, WorkspaceListEntry, WorkspacePathState};
 
 const WORKSPACE_HEADER: &str = "workspace";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
 const SOFT_YELLOW: Ansi256Color = Ansi256Color(179);
 const SOFT_GREEN: Ansi256Color = Ansi256Color(108);
+const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
 
 /// Environment variable used by shell integration to pass a directive file.
 pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
@@ -70,7 +71,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         .map(|entry| RenderedWorkspaceEntry {
             is_current: entry.is_current,
             name: entry.name.as_str(),
-            path: entry.path.display().to_string(),
+            path: render_workspace_path(entry),
             commit_id: entry.commit_id.as_str(),
             message: entry.message.as_str(),
         })
@@ -82,7 +83,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         .fold(WORKSPACE_HEADER.len(), usize::max);
     let path_width = rendered_entries
         .iter()
-        .map(|entry| entry.path.len())
+        .map(|entry| entry.path.visible_len)
         .fold(PATH_HEADER.len(), usize::max);
     let commit_width = rendered_entries
         .iter()
@@ -99,14 +100,13 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
     for entry in rendered_entries {
         writeln!(
             output,
-            "{:<6}  {:<workspace_width$}  {:<path_width$}  {:<commit_width$}  {}",
+            "{:<6}  {:<workspace_width$}  {}  {:<commit_width$}  {}",
             if entry.is_current { "@" } else { "" },
             entry.name,
-            entry.path,
+            pad_visible(&entry.path.rendered, entry.path.visible_len, path_width),
             entry.commit_id,
             entry.message,
             workspace_width = workspace_width,
-            path_width = path_width,
             commit_width = commit_width
         )
         .expect("write table row");
@@ -207,6 +207,64 @@ fn color_enabled() -> bool {
     std::env::var_os("NO_COLOR").is_none() && stderr().is_terminal()
 }
 
+fn render_workspace_path(entry: &WorkspaceListEntry) -> RenderedPath {
+    let plain = plain_workspace_path(entry);
+    let mut rendered = plain.clone();
+
+    if hyperlink_enabled() {
+        rendered = rendered.replacen(
+            "[inferred]",
+            &hyperlink("[inferred]", INFERRED_ISSUE_URL),
+            1,
+        );
+    }
+
+    RenderedPath {
+        rendered,
+        visible_len: plain.len(),
+    }
+}
+
+fn plain_workspace_path(entry: &WorkspaceListEntry) -> String {
+    let mut rendered = entry.path.display().to_string();
+
+    match entry.path_state {
+        WorkspacePathState::Confirmed => {}
+        WorkspacePathState::Inferred => rendered.push_str(" [inferred]"),
+        WorkspacePathState::Missing => {
+            if entry.path_is_inferred {
+                rendered.push_str(" [inferred]");
+            }
+            rendered.push_str(" [missing]");
+        }
+        WorkspacePathState::Stale => {
+            if entry.path_is_inferred {
+                rendered.push_str(" [inferred]");
+            }
+            rendered.push_str(" [stale]");
+        }
+    }
+
+    rendered
+}
+
+fn hyperlink_enabled() -> bool {
+    if !stdout().is_terminal() {
+        return false;
+    }
+
+    !matches!(std::env::var("TERM"), Ok(term) if term == "dumb")
+}
+
+fn hyperlink(label: &str, url: &str) -> String {
+    format!("\u{1b}]8;;{url}\u{1b}\\{label}\u{1b}]8;;\u{1b}\\")
+}
+
+fn pad_visible(value: &str, visible_len: usize, width: usize) -> String {
+    let padding = width.saturating_sub(visible_len);
+    format!("{value}{}", " ".repeat(padding))
+}
+
 const fn ansi_256_color_code(color: Ansi256Color) -> u8 {
     color.0
 }
@@ -214,16 +272,21 @@ const fn ansi_256_color_code(color: Ansi256Color) -> u8 {
 struct RenderedWorkspaceEntry<'a> {
     is_current: bool,
     name: &'a str,
-    path: String,
+    path: RenderedPath,
     commit_id: &'a str,
     message: &'a str,
+}
+
+struct RenderedPath {
+    rendered: String,
+    visible_len: usize,
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use crate::types::{ShellKind, WorkspaceListEntry, WorkspaceName};
+    use crate::types::{ShellKind, WorkspaceListEntry, WorkspaceName, WorkspacePathState};
 
     use super::{
         DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
@@ -238,6 +301,8 @@ mod tests {
                 is_current: true,
                 name: WorkspaceName::new("default").expect("valid workspace"),
                 path: PathBuf::from("."),
+                path_is_inferred: false,
+                path_state: WorkspacePathState::Confirmed,
                 commit_id: String::from("abc123"),
                 message: String::from("Current work"),
             },
@@ -245,6 +310,8 @@ mod tests {
                 is_current: false,
                 name: WorkspaceName::new("feature-auth").expect("valid workspace"),
                 path: PathBuf::from("../repo.feature-auth"),
+                path_is_inferred: true,
+                path_state: WorkspacePathState::Inferred,
                 commit_id: String::from("def456"),
                 message: String::from("Feature auth work"),
             },
@@ -256,6 +323,7 @@ mod tests {
         assert!(rendered.contains("workspace"));
         assert!(rendered.contains("commit"));
         assert!(rendered.contains("Feature auth work"));
+        assert!(rendered.contains("[inferred]"));
     }
 
     #[test]
