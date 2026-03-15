@@ -10,13 +10,19 @@ use std::io::{IsTerminal, stderr, stdout};
 use std::path::Path;
 
 use crate::doctor::{DoctorFinding, DoctorReport, DoctorScope, DoctorSeverity, DoctorSummary};
-use crate::types::{ShellKind, WorkspaceListEntry, WorkspacePathState};
+use crate::types::{ShellKind, WorkspaceListEntry};
 
+const CURRENT_HEADER: &str = "cur";
 const WORKSPACE_HEADER: &str = "workspace";
+const STATUS_HEADER: &str = "status";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
 const SOFT_YELLOW: Ansi256Color = Ansi256Color(179);
 const SOFT_GREEN: Ansi256Color = Ansi256Color(108);
+const SOFT_BLUE: Ansi256Color = Ansi256Color(110);
+const SOFT_TEAL: Ansi256Color = Ansi256Color(73);
+const SOFT_RED: Ansi256Color = Ansi256Color(203);
+const SOFT_GRAY: Ansi256Color = Ansi256Color(245);
 const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
 
 /// Environment variable used by shell integration to pass a directive file.
@@ -72,44 +78,66 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         .iter()
         .map(|entry| RenderedWorkspaceEntry {
             is_current: entry.is_current,
-            name: entry.name.as_str(),
+            name: render_workspace_name(entry.name.as_str(), entry.is_current),
+            status: render_workspace_status(entry),
             path: render_workspace_path(entry),
-            commit_id: entry.commit_id.as_str(),
+            commit_id: render_commit_id(entry.commit_id.as_str()),
             message: entry.message.as_str(),
         })
         .collect::<Vec<_>>();
 
     let workspace_width = rendered_entries
         .iter()
-        .map(|entry| entry.name.len())
+        .map(|entry| entry.name.visible_len)
         .fold(WORKSPACE_HEADER.len(), usize::max);
     let path_width = rendered_entries
         .iter()
         .map(|entry| entry.path.visible_len)
         .fold(PATH_HEADER.len(), usize::max);
+    let status_width = rendered_entries
+        .iter()
+        .map(|entry| entry.status.visible_len)
+        .fold(STATUS_HEADER.len(), usize::max);
     let commit_width = rendered_entries
         .iter()
-        .map(|entry| entry.commit_id.len())
+        .map(|entry| entry.commit_id.visible_len)
         .fold(COMMIT_HEADER.len(), usize::max);
 
     let mut output = String::new();
     writeln!(
         output,
-        "marker  {WORKSPACE_HEADER:<workspace_width$}  {PATH_HEADER:<path_width$}  {COMMIT_HEADER:<commit_width$}  message"
+        "{}  {}  {}  {}  {}  message",
+        style_table_header(&format!("{CURRENT_HEADER:<3}")),
+        style_table_header(&format!("{WORKSPACE_HEADER:<workspace_width$}")),
+        style_table_header(&format!("{STATUS_HEADER:<status_width$}")),
+        style_table_header(&format!("{PATH_HEADER:<path_width$}")),
+        style_table_header(&format!("{COMMIT_HEADER:<commit_width$}")),
     )
     .expect("write table header");
 
     for entry in rendered_entries {
+        let current_marker = if entry.is_current { "@" } else { "" };
         writeln!(
             output,
-            "{:<6}  {:<workspace_width$}  {}  {:<commit_width$}  {}",
-            if entry.is_current { "@" } else { "" },
-            entry.name,
+            "{}  {}  {}  {}  {}  {}",
+            pad_visible(current_marker, current_marker.len(), CURRENT_HEADER.len()),
+            pad_visible(
+                &entry.name.rendered,
+                entry.name.visible_len,
+                workspace_width
+            ),
+            pad_visible(
+                &entry.status.rendered,
+                entry.status.visible_len,
+                status_width
+            ),
             pad_visible(&entry.path.rendered, entry.path.visible_len, path_width),
-            entry.commit_id,
+            pad_visible(
+                &entry.commit_id.rendered,
+                entry.commit_id.visible_len,
+                commit_width
+            ),
             entry.message,
-            workspace_width = workspace_width,
-            commit_width = commit_width
         )
         .expect("write table row");
     }
@@ -401,6 +429,10 @@ fn style_doctor_heading(label: &str) -> String {
     styled_stdout_text(label, SOFT_YELLOW, true)
 }
 
+fn style_table_header(label: &str) -> String {
+    styled_stdout_text(label, SOFT_YELLOW, true)
+}
+
 fn style_section_label(label: &str) -> String {
     styled_stdout_text(label, SOFT_GREEN, true)
 }
@@ -416,6 +448,29 @@ fn style_status_badge(label: &str, severity: DoctorSeverity) -> String {
         DoctorSeverity::Info => SOFT_GREEN,
     };
     styled_stdout_text(&plain, color, true)
+}
+
+fn style_list_badge(label: &str, color: Ansi256Color) -> String {
+    styled_stdout_text(&format!("[{label}]"), color, true)
+}
+
+fn style_workspace_name(name: &str, is_current: bool) -> String {
+    if is_current {
+        styled_stdout_text(name, SOFT_GREEN, true)
+    } else {
+        name.to_owned()
+    }
+}
+
+fn style_meta(text: &str) -> String {
+    if !stdout_color_enabled() {
+        return text.to_owned();
+    }
+
+    let style = Style::new()
+        .fg_color(Some(SOFT_GRAY.into()))
+        .effects(Effects::DIMMED);
+    format!("{}{}{}", style.render(), text, style.render_reset())
 }
 
 fn scope_icon(summary: &ScopeSummary) -> &'static str {
@@ -458,45 +513,77 @@ fn should_color_output(stream_is_terminal: bool) -> bool {
     std::env::var_os("NO_COLOR").is_none() && stream_is_terminal
 }
 
-fn render_workspace_path(entry: &WorkspaceListEntry) -> RenderedPath {
-    let plain = plain_workspace_path(entry);
-    let mut rendered = plain.clone();
+fn render_workspace_status(entry: &WorkspaceListEntry) -> RenderedCell {
+    let plain = plain_workspace_status(entry);
+    let rendered = entry
+        .statuses
+        .iter()
+        .map(|status| render_status_badge(*status))
+        .collect::<Vec<_>>()
+        .join(" ");
 
-    if hyperlink_enabled() {
-        rendered = rendered.replacen(
-            "[inferred]",
-            &hyperlink("[inferred]", INFERRED_ISSUE_URL),
-            1,
-        );
-    }
-
-    RenderedPath {
+    RenderedCell {
         rendered,
         visible_len: plain.len(),
     }
 }
 
-fn plain_workspace_path(entry: &WorkspaceListEntry) -> String {
-    let mut rendered = entry.path.display().to_string();
+fn plain_workspace_status(entry: &WorkspaceListEntry) -> String {
+    entry
+        .statuses
+        .iter()
+        .map(|status| format!("[{}]", status.label()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
-    match entry.path_state {
-        WorkspacePathState::Confirmed => {}
-        WorkspacePathState::Inferred => rendered.push_str(" [inferred]"),
-        WorkspacePathState::Missing => {
-            if entry.path_is_inferred {
-                rendered.push_str(" [inferred]");
-            }
-            rendered.push_str(" [missing]");
-        }
-        WorkspacePathState::Stale => {
-            if entry.path_is_inferred {
-                rendered.push_str(" [inferred]");
-            }
-            rendered.push_str(" [stale]");
-        }
+fn render_workspace_path(entry: &WorkspaceListEntry) -> RenderedCell {
+    let plain = entry.path.display().to_string();
+    let rendered = match entry.path_state {
+        crate::types::WorkspacePathState::Confirmed => plain.clone(),
+        crate::types::WorkspacePathState::Inferred => styled_stdout_text(&plain, SOFT_BLUE, false),
+        crate::types::WorkspacePathState::Missing => styled_stdout_text(&plain, SOFT_YELLOW, false),
+        crate::types::WorkspacePathState::Stale => styled_stdout_text(&plain, SOFT_RED, false),
+    };
+    let visible_len = plain.len();
+
+    RenderedCell {
+        rendered,
+        visible_len,
     }
+}
 
-    rendered
+fn render_workspace_name(name: &str, is_current: bool) -> RenderedCell {
+    RenderedCell {
+        rendered: style_workspace_name(name, is_current),
+        visible_len: name.len(),
+    }
+}
+
+fn render_commit_id(commit_id: &str) -> RenderedCell {
+    let visible_len = commit_id.len();
+
+    RenderedCell {
+        rendered: style_meta(commit_id),
+        visible_len,
+    }
+}
+
+fn render_status_badge(status: crate::types::WorkspaceListStatus) -> String {
+    let label = status.label();
+    let colored = match status {
+        crate::types::WorkspaceListStatus::Ok => style_list_badge(label, SOFT_GREEN),
+        crate::types::WorkspaceListStatus::Inferred => style_list_badge(label, SOFT_BLUE),
+        crate::types::WorkspaceListStatus::Missing => style_list_badge(label, SOFT_YELLOW),
+        crate::types::WorkspaceListStatus::Stale => style_list_badge(label, SOFT_RED),
+        crate::types::WorkspaceListStatus::JjOnly => style_list_badge(label, SOFT_TEAL),
+    };
+
+    if status == crate::types::WorkspaceListStatus::Inferred && hyperlink_enabled() {
+        hyperlink(&colored, INFERRED_ISSUE_URL)
+    } else {
+        colored
+    }
 }
 
 fn hyperlink_enabled() -> bool {
@@ -522,13 +609,14 @@ const fn ansi_256_color_code(color: Ansi256Color) -> u8 {
 
 struct RenderedWorkspaceEntry<'a> {
     is_current: bool,
-    name: &'a str,
-    path: RenderedPath,
-    commit_id: &'a str,
+    name: RenderedCell,
+    status: RenderedCell,
+    path: RenderedCell,
+    commit_id: RenderedCell,
     message: &'a str,
 }
 
-struct RenderedPath {
+struct RenderedCell {
     rendered: String,
     visible_len: usize,
 }
@@ -567,7 +655,9 @@ impl ScopeSummary {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::types::{ShellKind, WorkspaceListEntry, WorkspaceName, WorkspacePathState};
+    use crate::types::{
+        ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
+    };
 
     use super::{
         DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
@@ -581,6 +671,7 @@ mod tests {
             WorkspaceListEntry {
                 is_current: true,
                 name: WorkspaceName::new("default").expect("valid workspace"),
+                statuses: vec![WorkspaceListStatus::Ok],
                 path: PathBuf::from("."),
                 path_is_inferred: false,
                 path_state: WorkspacePathState::Confirmed,
@@ -590,6 +681,7 @@ mod tests {
             WorkspaceListEntry {
                 is_current: false,
                 name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+                statuses: vec![WorkspaceListStatus::Inferred],
                 path: PathBuf::from("../repo.feature-auth"),
                 path_is_inferred: true,
                 path_state: WorkspacePathState::Inferred,
@@ -600,11 +692,13 @@ mod tests {
 
         let rendered = render_workspace_table(&entries);
 
-        assert!(rendered.contains("marker"));
+        assert!(rendered.contains("cur"));
         assert!(rendered.contains("workspace"));
+        assert!(rendered.contains("status"));
         assert!(rendered.contains("commit"));
         assert!(rendered.contains("Feature auth work"));
         assert!(rendered.contains("[inferred]"));
+        assert!(!rendered.contains("../repo.feature-auth [inferred]"));
     }
 
     #[test]

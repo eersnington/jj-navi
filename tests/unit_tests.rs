@@ -6,7 +6,9 @@ use jj_navi::output::{
     render_doctor_report_json, render_shell_init, render_shell_install_block,
     render_workspace_table,
 };
-use jj_navi::types::{ShellKind, WorkspaceListEntry, WorkspaceName, WorkspacePathState};
+use jj_navi::types::{
+    ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
+};
 use std::path::PathBuf;
 
 #[test]
@@ -21,6 +23,7 @@ fn renders_table_with_header() {
     let entries = vec![WorkspaceListEntry {
         is_current: false,
         name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+        statuses: vec![WorkspaceListStatus::Inferred],
         path: PathBuf::from("../repo.feature-auth"),
         path_is_inferred: true,
         path_state: WorkspacePathState::Inferred,
@@ -30,18 +33,21 @@ fn renders_table_with_header() {
 
     let rendered = render_workspace_table(&entries);
 
-    assert!(rendered.starts_with("marker"));
+    assert!(rendered.starts_with("cur"));
+    assert!(rendered.contains("status"));
     assert!(rendered.contains("../repo.feature-auth"));
     assert!(rendered.contains("[inferred]"));
+    assert!(!rendered.contains("../repo.feature-auth [inferred]"));
     assert!(rendered.contains("abc123"));
     assert!(rendered.contains("Feature auth work"));
 }
 
 #[test]
-fn renders_missing_without_inferred_marker_for_non_inferred_path() {
+fn renders_missing_status_without_inferred_status_for_non_inferred_path() {
     let entries = vec![WorkspaceListEntry {
         is_current: false,
         name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+        statuses: vec![WorkspaceListStatus::Missing],
         path: PathBuf::from("../repo.feature-auth"),
         path_is_inferred: false,
         path_state: WorkspacePathState::Missing,
@@ -51,8 +57,28 @@ fn renders_missing_without_inferred_marker_for_non_inferred_path() {
 
     let rendered = render_workspace_table(&entries);
 
-    assert!(rendered.contains("../repo.feature-auth [missing]"));
+    assert!(rendered.contains("[missing]"));
+    assert!(rendered.contains("../repo.feature-auth"));
     assert!(!rendered.contains("[inferred] [missing]"));
+}
+
+#[test]
+fn renders_combined_workspace_statuses() {
+    let entries = vec![WorkspaceListEntry {
+        is_current: false,
+        name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+        statuses: vec![WorkspaceListStatus::Inferred, WorkspaceListStatus::Missing],
+        path: PathBuf::from("../repo.feature-auth"),
+        path_is_inferred: true,
+        path_state: WorkspacePathState::Missing,
+        commit_id: String::from("abc123"),
+        message: String::from("Feature auth work"),
+    }];
+
+    let rendered = render_workspace_table(&entries);
+
+    assert!(rendered.contains("[inferred] [missing]"));
+    assert!(!rendered.contains("../repo.feature-auth [missing]"));
 }
 
 #[test]

@@ -180,6 +180,8 @@ pub struct WorkspaceListEntry {
     pub is_current: bool,
     /// Workspace name.
     pub name: WorkspaceName,
+    /// Compact status labels shown in the list table.
+    pub statuses: Vec<WorkspaceListStatus>,
     /// Display path shown in the table.
     pub path: PathBuf,
     /// Whether the rendered path comes from `navi` fallback logic.
@@ -203,6 +205,35 @@ pub enum WorkspacePathState {
     Missing,
     /// Best known path exists but no longer validates.
     Stale,
+}
+
+/// Compact status label rendered by `navi list`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceListStatus {
+    /// Workspace looks healthy.
+    Ok,
+    /// Workspace path came from validated fallback data.
+    Inferred,
+    /// Best known workspace path is missing.
+    Missing,
+    /// Best known workspace path is stale.
+    Stale,
+    /// JJ knows the workspace but `navi` metadata does not.
+    JjOnly,
+}
+
+impl WorkspaceListStatus {
+    /// Return the human-facing label for this status.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Inferred => "inferred",
+            Self::Missing => "missing",
+            Self::Stale => "stale",
+            Self::JjOnly => "jj-only",
+        }
+    }
 }
 
 fn validate_workspace_template(value: &str) -> Result<()> {

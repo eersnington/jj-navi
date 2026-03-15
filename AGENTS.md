@@ -82,6 +82,7 @@ tests/
 - `unsafe` stays forbidden.
 - Code should pass `cargo clippy --all-targets -- -D warnings`.
 - Treat lint suppressions as exceptional; scope them tightly and justify them.
+- When README.md changes, remember to run `node npm/scripts/sync-wrapper-readme.mjs` as this is a CI requirement.
 
 ## COMMANDS
 
