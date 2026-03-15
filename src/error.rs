@@ -136,6 +136,10 @@ pub enum Error {
         minimum: &'static str,
     },
 
+    /// JSON output could not be serialized.
+    #[error("error: failed to serialize json output\n{0}")]
+    JsonSerialization(String),
+
     /// An underlying I/O operation failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),

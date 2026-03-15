@@ -9,6 +9,13 @@ use crate::output::{
 };
 use crate::types::ShellKind;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ManagedBlockState {
+    Missing,
+    Present { start: usize, end: usize },
+    Invalid(&'static str),
+}
+
 /// Run `config shell init`.
 ///
 /// # Errors
@@ -55,12 +62,8 @@ fn shell_rc_path(shell: ShellKind) -> Result<PathBuf> {
 }
 
 fn upsert_managed_block(existing: &str, block: &str, rc_path: &Path) -> Result<String> {
-    match (
-        existing.find(MANAGED_BLOCK_START),
-        existing.find(MANAGED_BLOCK_END),
-    ) {
-        (Some(start), Some(end)) if end >= start => {
-            let end = end + MANAGED_BLOCK_END.len();
+    match inspect_managed_block(existing) {
+        ManagedBlockState::Present { start, end } => {
             let mut updated = String::new();
             updated.push_str(&existing[..start]);
             if !updated.is_empty() && !updated.ends_with('\n') {
@@ -79,15 +82,11 @@ fn upsert_managed_block(existing: &str, block: &str, rc_path: &Path) -> Result<S
             }
             Ok(updated)
         }
-        (Some(_), Some(_)) => Err(Error::InvalidShellRcFile {
+        ManagedBlockState::Invalid(message) => Err(Error::InvalidShellRcFile {
             path: rc_path.to_path_buf(),
-            message: "managed block markers are out of order",
+            message,
         }),
-        (Some(_), None) | (None, Some(_)) => Err(Error::InvalidShellRcFile {
-            path: rc_path.to_path_buf(),
-            message: "managed block markers are unbalanced",
-        }),
-        (None, None) => {
+        ManagedBlockState::Missing => {
             let mut updated = String::new();
             updated.push_str(existing);
             if !updated.is_empty() && !updated.ends_with('\n') {
@@ -102,11 +101,38 @@ fn upsert_managed_block(existing: &str, block: &str, rc_path: &Path) -> Result<S
     }
 }
 
+pub(crate) fn inspect_managed_block(existing: &str) -> ManagedBlockState {
+    let starts = existing
+        .match_indices(MANAGED_BLOCK_START)
+        .collect::<Vec<_>>();
+    let ends = existing
+        .match_indices(MANAGED_BLOCK_END)
+        .collect::<Vec<_>>();
+
+    match (starts.as_slice(), ends.as_slice()) {
+        ([], []) => ManagedBlockState::Missing,
+        ([(_, _)], [(_, _)]) => {
+            let start = starts[0].0;
+            let end = ends[0].0;
+            if end < start {
+                ManagedBlockState::Invalid("managed block markers are out of order")
+            } else {
+                ManagedBlockState::Present {
+                    start,
+                    end: end + MANAGED_BLOCK_END.len(),
+                }
+            }
+        }
+        ([], _) | (_, []) => ManagedBlockState::Invalid("managed block markers are unbalanced"),
+        _ => ManagedBlockState::Invalid("managed block markers are duplicated"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::upsert_managed_block;
+    use super::{ManagedBlockState, inspect_managed_block, upsert_managed_block};
     use crate::output::{MANAGED_BLOCK_END, MANAGED_BLOCK_START};
 
     #[test]
@@ -122,5 +148,17 @@ mod tests {
         assert!(updated.contains("line after"));
         assert!(updated.contains("new"));
         assert!(!updated.contains("old"));
+    }
+
+    #[test]
+    fn rejects_duplicated_managed_block_markers() {
+        let existing = format!(
+            "{MANAGED_BLOCK_START}\nold\n{MANAGED_BLOCK_START}\nnew\n{MANAGED_BLOCK_END}\n"
+        );
+
+        assert_eq!(
+            inspect_managed_block(&existing),
+            ManagedBlockState::Invalid("managed block markers are duplicated")
+        );
     }
 }

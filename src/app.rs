@@ -32,6 +32,14 @@ enum Commands {
     },
     #[command(about = "List known workspaces with path and commit details")]
     List,
+    #[command(about = "Inspect repo, workspace, and shell health")]
+    Doctor {
+        #[arg(long, help = "Render diagnostics as JSON")]
+        json: bool,
+
+        #[arg(long, help = "Render compact JSON", requires = "json")]
+        compact: bool,
+    },
     #[command(about = "Forget a non-current workspace")]
     Remove {
         #[arg(help = "Workspace name to forget")]
@@ -90,7 +98,7 @@ impl From<crate::Error> for AppError {
 /// Run the CLI entrypoint for the provided binary name and argv.
 pub fn main(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> ExitCode {
     match run(bin_name, args) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(exit_code) => exit_code,
         Err(AppError::Cli(error)) => {
             let exit_code = error.exit_code();
             if error.print().is_err() {
@@ -105,7 +113,10 @@ pub fn main(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) ->
     }
 }
 
-fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Result<(), AppError> {
+fn run(
+    bin_name: &'static str,
+    args: impl IntoIterator<Item = OsString>,
+) -> Result<ExitCode, AppError> {
     let cli = parse_cli(bin_name, args)?;
     let path = PathBuf::from(".");
 
@@ -116,6 +127,9 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
             workspace,
         } => cli::run_switch(&path, &workspace, create, revision.as_deref())?,
         Commands::List => cli::run_list(&path)?,
+        Commands::Doctor { json, compact } => {
+            return Ok(cli::run_doctor(&path, bin_name, json, compact)?);
+        }
         Commands::Remove { workspace } => cli::run_remove(&path, &workspace)?,
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {
@@ -127,7 +141,7 @@ fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> Resu
         },
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn parse_cli(
