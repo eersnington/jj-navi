@@ -312,10 +312,12 @@ fn list_uses_actual_jj_path_after_config_changes() {
         .args(["list"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("status"))
         .stdout(predicate::str::contains(format!(
             "../{}.feature-auth",
             repo.repo_name()
         )))
+        .stdout(predicate::str::contains("[ok]"))
         .stdout(predicate::str::contains("feature-auth"));
 }
 
@@ -339,6 +341,7 @@ fn list_uses_actual_jj_workspace_path_for_non_navi_workspace() {
                 .to_string_lossy()
                 .to_string(),
         ))
+        .stdout(predicate::str::contains("jj-only"))
         .stdout(predicate::str::contains("feature-auth"));
 }
 
@@ -938,9 +941,11 @@ fn list_prints_workspace_table() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(predicate::str::starts_with("marker"))
+        .stdout(predicate::str::starts_with("cur"))
+        .stdout(predicate::str::contains("status"))
         .stdout(predicate::str::contains("@"))
         .stdout(predicate::str::contains("default"))
+        .stdout(predicate::str::contains("[ok]"))
         .stdout(predicate::str::contains("Feature auth work"))
         .stdout(predicate::str::contains("Bugfix api work"))
         .stdout(predicate::str::contains("commit"))
@@ -971,10 +976,11 @@ fn list_uses_current_workspace_root_when_jj_workspace_paths_are_missing() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("@       default"))
+        .stdout(predicate::str::contains("@    default"))
         .stdout(predicate::str::contains("feature-auth"))
+        .stdout(predicate::str::contains("[inferred]"))
         .stdout(predicate::str::contains(format!(
-            "../{}.feature-auth [inferred]",
+            "../{}.feature-auth",
             repo.repo_name()
         )));
 }
@@ -1004,10 +1010,15 @@ fn list_reports_missing_workspace_directory_from_inferred_path() {
         .args(["list"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("[inferred] [missing]"))
         .stdout(predicate::str::contains(format!(
-            "../{}.feature-auth [inferred] [missing]",
+            "../{}.feature-auth",
             repo.repo_name()
-        )));
+        )))
+        .stdout(
+            predicate::str::contains(format!("../{}.feature-auth [missing]", repo.repo_name()))
+                .not(),
+        );
 }
 
 #[test]
@@ -1027,12 +1038,47 @@ fn list_reports_stale_workspace_directory_from_jj_path_without_inferred_marker()
         .args(["list"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("[stale]"))
         .stdout(predicate::str::contains(format!(
-            "../{}.feature-auth [stale]",
+            "../{}.feature-auth",
             repo.repo_name()
         )))
         .stdout(predicate::str::contains("feature-auth"))
         .stdout(predicate::str::contains("[inferred] [stale]").not());
+}
+
+#[test]
+fn list_does_not_treat_pathless_metadata_as_jj_only() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.write_navi_metadata(
+        "[[workspace]]\nname = \"feature-auth\"\ncreated_by_navi = true\ncreated_at = \"2026-03-11T00:00:00Z\"\ntemplate = \"../{repo}.{workspace}\"\nrevision = \"\"\n",
+    );
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-auth"))
+        .stdout(predicate::str::contains("jj-only").not());
+}
+
+#[test]
+fn list_does_not_treat_empty_metadata_path_as_jj_only() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.write_navi_metadata(
+        "[[workspace]]\nname = \"feature-auth\"\npath = \"\"\ncreated_by_navi = true\ncreated_at = \"2026-03-11T00:00:00Z\"\ntemplate = \"../{repo}.{workspace}\"\nrevision = \"\"\n",
+    );
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-auth"))
+        .stdout(predicate::str::contains("jj-only").not());
 }
 
 #[test]

@@ -8,7 +8,8 @@ use crate::cli::{ManagedBlockState, inspect_managed_block};
 use crate::doctor::{DoctorFinding, DoctorFindingCode, DoctorReport, DoctorScope, DoctorSeverity};
 use crate::error::{Error, Result};
 use crate::types::{
-    RepoConfig, WorkspaceListEntry, WorkspaceName, WorkspacePathState, WorkspaceTemplate,
+    RepoConfig, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
+    WorkspaceTemplate,
 };
 
 use super::config::{ensure_repo_config, load_repo_config};
@@ -69,7 +70,7 @@ enum CandidateState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DoctorMetadataStatus {
+enum WorkspaceMetadataStatus {
     MissingRecord,
     PresentWithoutPath,
     PresentWithPath,
@@ -293,7 +294,8 @@ impl NaviWorkspace {
 
         for entry in workspace_entries {
             let resolved = self.resolve_workspace_path_with_metadata(&entry.name, &metadata);
-            entries.push(self.workspace_entry(entry, &resolved));
+            let metadata_status = metadata_status(&entry.name, &metadata);
+            entries.push(self.workspace_entry(entry, &resolved, metadata_status));
         }
 
         entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -305,16 +307,19 @@ impl NaviWorkspace {
         &self,
         entry: super::jj::JjWorkspaceListEntry,
         resolved: &ResolvedWorkspacePath,
+        metadata_status: WorkspaceMetadataStatus,
     ) -> WorkspaceListEntry {
         let path = if entry.is_current {
             PathBuf::from(".")
         } else {
             self.display_path_for_list(&resolved.path)
         };
+        let statuses = workspace_list_statuses(&entry.name, resolved, metadata_status);
 
         WorkspaceListEntry {
             is_current: entry.is_current,
             name: entry.name,
+            statuses,
             path,
             path_is_inferred: resolved.source.is_inferred(),
             path_state: resolved.state,
@@ -502,7 +507,7 @@ impl DoctorWorkspace {
 
         for entry in &workspace_entries {
             let resolved = self.resolve_workspace_path_with_metadata(&entry.name, metadata, jj);
-            let metadata_status = self.metadata_status_for_doctor(&entry.name, metadata);
+            let metadata_status = metadata_status(&entry.name, metadata);
             match resolved.state {
                 WorkspacePathState::Confirmed => {}
                 WorkspacePathState::Inferred => {
@@ -545,7 +550,7 @@ impl DoctorWorkspace {
             // for path recovery; doctor must not infer missing metadata from a
             // missing stored path.
             if self.metadata_is_valid
-                && matches!(metadata_status, DoctorMetadataStatus::MissingRecord)
+                && matches!(metadata_status, WorkspaceMetadataStatus::MissingRecord)
                 && should_report_missing_navi_metadata(&entry.name)
             {
                 findings.push(workspace_finding(
@@ -578,22 +583,6 @@ impl DoctorWorkspace {
         }
 
         Ok(findings)
-    }
-
-    fn metadata_status_for_doctor(
-        &self,
-        workspace: &WorkspaceName,
-        metadata: &WorkspaceMetadataStore,
-    ) -> DoctorMetadataStatus {
-        if !self.metadata_is_valid || !metadata.contains_workspace(workspace) {
-            return DoctorMetadataStatus::MissingRecord;
-        }
-
-        if metadata.workspace_path(workspace).is_some() {
-            DoctorMetadataStatus::PresentWithPath
-        } else {
-            DoctorMetadataStatus::PresentWithoutPath
-        }
     }
 
     fn inferred_path_finding(
@@ -873,6 +862,51 @@ fn should_report_missing_navi_metadata(workspace: &WorkspaceName) -> bool {
     // behaves correctly with JJ as the source of truth, so doctor treats
     // missing metadata there as expected rather than drift.
     workspace.as_str() != DEFAULT_WORKSPACE_NAME
+}
+
+fn metadata_status(
+    workspace: &WorkspaceName,
+    metadata: &WorkspaceMetadataStore,
+) -> WorkspaceMetadataStatus {
+    if !metadata.contains_workspace(workspace) {
+        return WorkspaceMetadataStatus::MissingRecord;
+    }
+
+    if metadata.workspace_path(workspace).is_some() {
+        WorkspaceMetadataStatus::PresentWithPath
+    } else {
+        WorkspaceMetadataStatus::PresentWithoutPath
+    }
+}
+
+fn workspace_list_statuses(
+    workspace: &WorkspaceName,
+    resolved: &ResolvedWorkspacePath,
+    metadata_status: WorkspaceMetadataStatus,
+) -> Vec<WorkspaceListStatus> {
+    let mut statuses = Vec::new();
+
+    if resolved.source.is_inferred() {
+        statuses.push(WorkspaceListStatus::Inferred);
+    }
+
+    match resolved.state {
+        WorkspacePathState::Confirmed | WorkspacePathState::Inferred => {}
+        WorkspacePathState::Missing => statuses.push(WorkspaceListStatus::Missing),
+        WorkspacePathState::Stale => statuses.push(WorkspaceListStatus::Stale),
+    }
+
+    if matches!(metadata_status, WorkspaceMetadataStatus::MissingRecord)
+        && should_report_missing_navi_metadata(workspace)
+    {
+        statuses.push(WorkspaceListStatus::JjOnly);
+    }
+
+    if statuses.is_empty() {
+        statuses.push(WorkspaceListStatus::Ok);
+    }
+
+    statuses
 }
 
 fn workspace_finding(

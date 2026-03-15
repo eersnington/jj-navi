@@ -85,15 +85,17 @@ Use `navi doctor --json` for pretty machine-readable output or `navi doctor --js
 
 - current marker
 - workspace name
+- workspace status
 - path
 - commit short id
 - first-line commit message
 
 When `jj` cannot resolve a workspace path, `navi` falls back to validated repo-scoped metadata and deterministic path planning instead of failing the whole command.
 
-- `[inferred]` means the path came from a validated `navi` fallback instead of a JJ-recorded path
-- `[missing]` means the best known workspace path does not exist on disk anymore
-- `[stale]` means a candidate path exists but no longer validates as the requested workspace in the current repo
+- `inferred` means the path came from a validated `navi` fallback instead of a JJ-recorded path
+- `missing` means the best known workspace path does not exist on disk anymore
+- `stale` means a candidate path exists but no longer validates as the requested workspace in the current repo
+- `jj-only` means `jj` knows the workspace but `navi` has no metadata record for it
 
 ## Repo config
 
