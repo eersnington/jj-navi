@@ -2,9 +2,9 @@
 
 <img width="788" height="640" alt="jj-navi" src="https://github.com/user-attachments/assets/88e8b46e-9a76-416b-9f76-b4480d6964e7" />
 
-Navigation-first workspace UX for [Jujutsu](https://jj-vcs.github.io/jj/latest/).
+Workspace management for [Jujutsu](https://jj-vcs.github.io/jj/latest/), built for parallel human and AI agent workflows.
 
-Create, switch, list, and remove Jujutsu workspaces with predictable paths and optional shell integration for parallel human and AI workflows.
+Make JJ workspaces easier to create, switch, inspect, and clean up with predictable paths and optional shell integration.
 
 ## What it does
 
@@ -15,7 +15,7 @@ repo/
 └── repo.fix-api         navi switch --create fix-api
 ```
 
-`switch` is the center of the UX. Creating a workspace is just switching with `--create`.
+`jj-navi` makes parallel workspace work feel simpler and more predictable. Creating a workspace is just switching with `--create`.
 
 ## Install
 
