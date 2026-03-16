@@ -57,7 +57,9 @@ tests/
 
 ## RUST CONVENTIONS
 
-- Make minimal, surgical changes.
+- `unsafe_code = "deny"` - no unsafe allowed
+- No `.unwrap()` in production code (limited exceptions for post-validation)
+- Don't add features to lib.rs unless interface-agnostic
 - Prefer explicit types and validated domain values at boundaries.
 - Make illegal states hard or impossible to represent.
 - Prefer borrowing over cloning when ownership transfer is not needed.
@@ -65,17 +67,17 @@ tests/
 - Use typed errors with `thiserror`; keep error messages precise and actionable.
 - Add comments only for non-obvious invariants, safety, or why a choice exists.
 - Avoid speculative abstractions, dead helpers, and convenience wrappers with weak ownership.
-- Keep public docs and CLI wording concise, accurate, and stable.
 
 ## ANTI-PATTERNS
 
 - Do not use metadata path lookup as a proxy for metadata record existence.
 - Do not bypass the repo layer from CLI handlers.
-- Do not trust JJ-reported paths blindly; validate them against repo/workspace reality.
+- Do not trust JJ-reported paths blindly; validate them against repo/workspace.
 - Do not paper over JJ semantics with ad hoc heuristics when the model can be made explicit.
 - Do not add noisy or gimmicky CLI output.
 - Do not add mocks when a real-`jj` integration test is practical.
 - Do not add unit tests for private plumbing just because it is easy.
+- Do not add inline tests. All tests in tests/ directory, no mod tests { } blocks.
 
 ## LINTS
 
@@ -94,7 +96,8 @@ cargo test
 
 ## TESTING
 
-- Prefer well-designed integration or end-to-end tests over narrow white-box unit tests.
+- Unit tests should cover small, deterministic input → output logic you own (validation, parsing, formatting, pure transforms, black box).
+- Prefer well-designed integration or end-to-end tests over narrow white box unit tests.
 - If behavior depends on JJ semantics, use real `jj` integration tests.
 - Unit tests are for pure black-box behavior worth isolating: validation, formatting, and small deterministic transforms.
 - Do not unit-test implementation details, private helper shape, or incidental control flow.

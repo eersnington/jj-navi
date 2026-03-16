@@ -1,105 +1,144 @@
 # jj-navi PRD
 
-## 1. Overview
+## 1. Product in One Sentence
 
-`jj-navi` is a standalone Rust CLI for fast, predictable navigation between Jujutsu workspaces.
+`jj-navi` is a small Rust CLI that makes Jujutsu workspaces fast to create, switch, inspect, and clean up for parallel human and AI-agent workflows.
 
-Its core idea is simple:
+It is a navigation and workspace-visibility layer over native `jj workspace` primitives.
+It is not a replacement VCS workflow engine.
 
-`workspace name -> deterministic path -> fast navigation`
+## 2. Current Product Phase
 
-The tool is a UX layer over native `jj workspace` primitives. It does not implement its own workspace engine, version-control model, or repository state machine.
+Current phase:
 
-`jj-navi` exists to make Jujutsu workspaces practical for parallel human and AI agent workflows.
+- still rolling out v2
 
-More specifically, it should make Jujutsu workspaces feel as lightweight and navigable as directories or worktrees in day-to-day use.
+What that means:
 
-## 2. Product Goals
+- v1 established the core workspace navigator
+- v2 should finish the core day-to-day workflow around `switch`, `list`, and safe cleanup
+- v3 can add optional automation such as hooks and merge-oriented workflows
+
+This PRD intentionally recenters the roadmap away from side quests.
+`doctor` matters, but it is not the main product.
+`prune` is not currently implemented and is not part of the near-term core.
+
+## 3. Core Product Thesis
+
+The main promise of `jj-navi` is:
+
+```text
+workspace name -> trusted path -> fast navigation
+```
+
+That promise only works if three things are true:
+
+1. switching is obvious and low-friction
+2. workspace paths are trustworthy even when JJ metadata is incomplete or stale
+3. users can understand workspace state quickly without learning JJ internals
+
+## 4. Product Goals
 
 1. Make switching Jujutsu workspaces fast and predictable.
-2. Make creating new workspaces feel like a natural mode of switching.
-3. Make parallel human and AI agent workflows easy to manage.
-4. Provide a high-signal view of available workspaces.
-5. Stay fully compatible with native `jj` behavior.
-6. Remain small, safe, and easy to reason about.
+2. Make creating a workspace feel like a mode of switching, not a separate concept.
+3. Make many parallel workspaces understandable at a glance.
+4. Support parallel human and AI-agent workflows without hiding JJ semantics.
+5. Stay conservative around JJ edge cases and path ambiguity.
+6. Stay small, type-safe, and easy to reason about.
 
-## 3. Non-Goals
-
-The product must not try to become a general workflow platform.
+## 5. Non-Goals
 
 Out of scope for the product core:
 
 - implementing new VCS behavior
-- replacing Jujutsu commands
+- replacing `jj` commands in general
 - managing Git branches directly
 - managing Git worktrees
 - modifying Jujutsu internals
-- merge workflows
-- pull request workflows
-- CI integration
-- interactive TUI interfaces
-- build cache sharing
+- pull request workflows in v2
+- CI orchestration in v2
+- interactive TUI-first UX in v2
+- broad automation before the navigation loop is complete
+- speculative command families copied from Worktrunk without a JJ-native reason
 
-Some adjacent workflow features may be considered later, but `jj-navi` should stay navigation-first.
-
-## 4. Target Users
+## 6. Primary Users
 
 Primary users:
 
 - developers using Jujutsu daily
 - developers running multiple parallel tasks
 - developers using AI coding agents in separate workspaces
-- users moving from Git worktree workflows
-- users who want a Worktrunk-style workspace UX for `jj`
+- users migrating from Git worktree workflows
+- users who want a Worktrunk-style navigation UX for `jj`
 
-## 5. Product Philosophy
+## 7. Product Philosophy
 
-`jj-navi` should feel obvious.
+`jj-navi` should feel obvious from the command line alone.
+
+Core philosophy:
 
 - `switch` is the center of the UX
-- creating a workspace is a mode of switching, not a separate mental model
+- creation is a mode of switching
+- `list` is the main visibility command
+- `doctor` is a support command, not the headline workflow
 - workspace names are first-class navigation handles
 - paths should be deterministic and boring
-- behavior should be easy to predict from reading the command line alone
-- path, switching, and discovery friction should be hidden behind a small set of obvious commands
-- human and agent workflows should both feel first-class
+- metadata are additive fallback state, never the source of truth
+- destructive actions should stay conservative while JJ semantics remain subtle
 
-Example workflow:
+## 8. Core User Workflow
+
+The product is healthy when the main loop feels natural:
 
 ```sh
 navi switch --create feature-auth
-navi switch fix-pagination
+navi switch -
+navi switch @
 navi list
 navi remove feature-auth
 ```
 
-## 6. Command Model
+The intended mental model is:
 
-Primary command model:
+1. create or jump with `switch`
+2. inspect with `list`
+3. diagnose weirdness only when needed with `doctor`
+4. clean up safely with `remove`
 
-- `navi switch <workspace>`
-- `navi switch --create <workspace>`
-- `navi switch --create <workspace> --revision <revset>`
-- `navi list`
-- `navi remove <workspace>`
+## 9. Worktrunk Inspiration vs jj-navi Scope
 
-Shorthand binary:
+`jj-navi` is inspired by Worktrunk, but it should not try to clone Worktrunk wholesale.
 
-- `nv`
+What to borrow aggressively:
 
-The product UX centers `switch`, like Worktrunk. Creating a workspace is a mode of switching, not a separate command family.
+- `switch` as the primary command
+- creation as a mode of switching
+- strong `list` ergonomics
+- safe cleanup ergonomics
+- explicit support for parallel agent workflows
 
-## 7. Compatibility Rules
+What to borrow carefully, later, or not at all:
 
-Minimum supported `jj` version:
+- merge automation
+- broad step-command families
+- PR and CI integration
+- interactive picker UX
+- Git-specific branch/worktree assumptions
 
-- `0.39.0`
+Worktrunk influences product shape.
+JJ constraints determine final behavior.
 
-Why this is explicit:
+## 10. JJ Constraints and Upstream Behaviour to Know About
 
-- `jj` workspace behavior has evolved materially across releases
-- `jj-navi` is specifically about workspaces, so it should target a modern workspace baseline instead of smoothing over every earlier version difference
-- the PRD should make this version floor obvious to both humans and agents
+JJ workspace behavior is still evolving.
+`jj-navi` must remain conservative where upstream semantics are still subtle.
+
+Key rules:
+
+- always prefer stable `jj` commands over internal storage formats
+- never treat missing `navi` metadata as proof that a workspace does not exist
+- never treat a recorded path as trustworthy until it is validated against the repo and workspace identity
+- preserve graceful degradation when JJ path lookup is incomplete or stale
 
 Relevant workspace milestones in `jj`:
 
@@ -108,98 +147,160 @@ Relevant workspace milestones in `jj`:
 - `0.38.0` - `jj workspace root --name` lands
 - `0.39.0` - `jj workspace add` links workspaces with relative paths
 
-Compatibility expectations:
+Minimum supported `jj` version:
 
-- use `jj workspace add --name ...`
-- use `jj workspace list -T ...`
-- assume post-`0.39.0` workspace behavior in product design
-- prefer reading state from stable `jj` command output over relying on internal storage formats unless there is no better option
+- `0.39.0`
 
-This version floor does not change the product goal. `jj-navi` should still make `jj` workspaces feel as close as possible to lightweight, navigable worktrees for humans and coding agents.
+This is explicit because `jj-navi` is about workspace semantics, not generic CLI wrapping.
 
-## 8. Architecture Principles
+## 11. Upstream JJ Issues That Matter
 
-The architecture should stay stable even as file layout evolves.
+These upstream issues and discussions remain important design context and must stay visible in this PRD:
 
-### Core boundaries
+- Multiple working copies origin: <https://github.com/jj-vcs/jj/issues/13>
+- Retrieve another workspace path: <https://github.com/jj-vcs/jj/issues/6854>
+- `jj workspace root --name` edge cases: <https://github.com/jj-vcs/jj/issues/8758>
+- Tracking issue for colocated workspaces: <https://github.com/jj-vcs/jj/issues/8052>
+- Colocated repos with multiple workspaces discussion: <https://github.com/jj-vcs/jj/discussions/7470>
+- `v0.35.0` release discussion: <https://github.com/jj-vcs/jj/discussions/7956>
 
-- binary entrypoints stay thin
-- CLI parsing and dispatch should have one source of truth
-- command handlers should orchestrate, not own repo mechanics
-- repo/discovery logic should live behind a dedicated repo layer
-- output formatting should stay separate from repo logic
-- domain constraints should be expressed in typed values where practical
+Design implications:
 
-### Do
+- path lookup for non-current workspaces exists, but stale or missing path records still happen
+- the default or primary workspace remains semantically special in some recovery paths
+- fallback logic is necessary today
+- fallback logic must stay validated and conservative
 
-- keep `switch` primary
-- keep binary wrappers tiny
-- keep one shared CLI entry
-- isolate workspace discovery and path planning
-- derive repository state from `jj`
-- store only `navi`-specific metadata
-- favor real-`jj` integration tests
-- preserve a `jj-ryu`-style separation of concerns
+## 12. Current Command Model
 
-### Don’t
+Current shipping command families:
 
-- add a standalone `create` command
-- duplicate CLI definitions across binaries
-- mix output formatting with repo operations
-- reimplement workspace internals
-- overfit to unstable `jj` internal storage for core features
-- store duplicate state that can already be derived from `jj`
+- `navi switch <workspace>`
+- `navi switch --create <workspace>`
+- `navi switch --create <workspace> --revision <revset>`
+- `navi list`
+- `navi doctor`
+- `navi remove <workspace>`
+- `navi config shell init <bash|zsh>`
+- `navi config shell install [--shell <bash|zsh>]`
 
-## 9. Current Code Reference Points
+Shorthand binary:
 
-The PRD should not depend on one frozen file tree, but the current repository is organized around these landmarks:
+- `nv`
 
-- `src/main.rs` - `navi` binary entrypoint
-- `src/bin/nv.rs` - `nv` shorthand binary entrypoint
-- `src/cli/` - command handlers
-- `src/repo/` - workspace discovery, path planning, and `jj` interaction
-- `src/types.rs` - typed domain values
-- `src/error.rs` - typed app errors
-- `src/output.rs` - CLI formatting
-- `tests/common/` - real `jj` integration harness
+## 13. Planned Command Direction
 
-The exact files may change over time. The important part is preserving the architectural boundaries and do/don't rules from Section 8.
+### v2 command priorities
 
-## 10. Workspace Discovery
+These are the command additions or refinements that best complete the core workflow:
+
+- `navi switch -` - switch to the previous workspace
+- `navi switch @` - resolve the current workspace explicitly
+- `navi list --json` - structured output for shells and agents
+- `navi remove --delete-dir` - optional deletion of a validated non-current workspace directory
+
+### v3 command priorities
+
+These are valuable, but they belong after the core navigation loop is solid:
+
+- `navi merge` - merge-oriented workspace completion flow
+- lifecycle hooks
+- `navi switch -x <cmd>` or equivalent execute-after-switch support
+- optional presets or batch creation workflows
+
+### Explicitly deferred
+
+- interactive picker in v2
+- PR shortcuts like `pr:123` in v2
+- broad `step` command family in v2
+- statusline and marker systems in v2
+
+## 14. Core Behavioral Rules
+
+### `switch`
+
+`switch` is the center of the UX.
+
+Rules:
+
+- workspace names are validated early
+- existing workspaces resolve through the strongest trustworthy path source
+- if the workspace does not exist, `switch` fails unless `--create` is set
+- creation remains part of `switch`, not a separate top-level `create` command
+- shell integration should allow `switch` to change directories directly when installed
+- without shell integration, `switch` prints the path to stdout
+
+Planned v2 additions:
+
+- `switch -` uses repo-scoped previous-workspace state
+- `switch @` resolves the current workspace explicitly
+
+Not planned yet:
+
+- `switch ^` until JJ main/default workspace semantics are modeled cleanly enough
+
+### `list`
+
+`list` is the visibility command.
+
+Rules:
+
+- it should be useful before `doctor`
+- it should show enough signal to answer “what is going on?” quickly
+- it should surface degraded path states inline instead of failing the whole command
+- JSON output should exist for scripts and agents
+
+### `doctor`
+
+`doctor` is a support command.
+
+Rules:
+
+- it explains weird or degraded repo state
+- it should reuse the same underlying health model that powers `list`
+- it should not become the primary day-to-day user story
+
+### `remove`
+
+`remove` is the safe cleanup command.
+
+Rules:
+
+- explicit workspace name required
+- must refuse to remove the current workspace
+- forget-only remains the default behavior
+- any directory deletion must be explicit and validated
+
+## 15. Workspace Discovery and Path Recovery
 
 The CLI must work from any directory inside a workspace.
 
-Workspace discovery algorithm:
+Discovery algorithm:
 
-1. Walk up directories until `.jj` is found.
-2. Treat that directory as the current workspace root.
-3. Resolve repository storage from `.jj/repo`.
-
-In multi-workspace repos, `.jj/repo` may be a pointer file.
-
-Important rule:
-
-- resolve relative `.jj/repo` pointer paths relative to `.jj/`, not the current working directory
+1. walk up directories until `.jj` is found
+2. treat that directory as the current workspace root
+3. resolve shared repo storage from `.jj/repo`
+4. if `.jj/repo` is a pointer file, resolve relative to `.jj/`, not the current working directory
 
 This is a correctness requirement.
 
-## 11. Workspace Semantics and Ergonomics
+## 16. Workspace Path Resolution Strategy
 
-Jujutsu workspaces are separate working directories backed by shared repo storage.
+For non-current workspaces, path lookup should use the strongest validated source in order:
 
-Important practical facts:
+1. JJ-recorded workspace path
+2. validated repo-primary root for the default workspace
+3. validated `navi` metadata path
+4. validated deterministic template path
 
-- each workspace has its own working-copy state
-- multiple workspaces can share one underlying repo store
-- a secondary workspace may point to shared repo storage through `.jj/repo`
-- a workspace can become stale if its working-copy commit is rewritten from another workspace
-- secondary workspaces may not always behave like ordinary Git worktrees to every tool or agent
+Important rules:
 
-This matters because the core purpose of `jj-navi` is not just path generation. It is to make Jujutsu workspaces usable and navigable for parallel human and AI agent workflows despite this underlying complexity.
+- the current workspace path comes from local discovery, not fallback heuristics
+- every non-current candidate path must be validated before trusted use
+- `list` may show degraded rows inline
+- `switch` must only navigate to paths that validate as the requested workspace in the current repo
 
-`jj-navi` should hide as much of this friction as possible through navigation UX, shell integration, and clear workspace visibility. It should not pretend these upstream semantics do not exist.
-
-## 12. Path Template System
+## 17. Path Template System
 
 Workspace paths are generated from a deterministic template.
 
@@ -214,58 +315,33 @@ Supported variables:
 - `{repo}`
 - `{workspace}`
 
-Example:
-
-```text
-repo = api-server
-workspace = feature-auth
-path = ../api-server.feature-auth
-```
-
 Rules:
 
-- the same workspace name should always resolve to the same path
+- same workspace name should resolve to the same planned path
 - path generation should be deterministic
 - invalid workspace names should be rejected early
+- template support must stay intentionally small unless stronger use cases appear
 
-## 13. Native `jj` Primitives
+## 18. Metadata Contract
 
-`jj-navi` should build on existing `jj` commands.
+`jj-navi` metadata belong in shared Jujutsu repo storage.
 
-Core primitives:
-
-```text
-jj workspace add
-jj workspace list
-jj workspace forget
-jj workspace root
-```
-
-Later versions may use revsets like:
+Locations:
 
 ```text
-<workspace>@
-```
-
-for workspace-specific commit/status views.
-
-## 14. Metadata Contract
-
-`jj-navi` metadata belongs in shared Jujutsu repo storage.
-
-Location:
-
-```text
-.jj/repo/navi/
-```
-
-Workspace metadata file:
-
-```text
+.jj/repo/navi/config.toml
 .jj/repo/navi/workspaces.toml
 ```
 
-Illustrative schema:
+Metadata principles:
+
+- store only `navi`-specific data
+- derive repo truth from `jj`
+- metadata record presence and metadata path availability are distinct states
+- a missing stored path does not mean the metadata record is missing
+- metadata should support fallback recovery, not shadow JJ state
+
+Illustrative workspace metadata shape:
 
 ```toml
 [[workspace]]
@@ -277,398 +353,256 @@ template = "../{repo}.{workspace}"
 revision = "main"
 ```
 
+## 19. Repo-Scoped State Beyond Metadata
+
+v2 should introduce minimal repo-scoped navigation state for the core workflow.
+
+Planned state:
+
+- previous workspace pointer for `switch -`
+
 Rules:
 
-- store only metadata that is specific to `navi`
-- derive repository truth from `jj`
-- avoid duplicating state that can become stale
+- repo-scoped, not shell-session-scoped
+- updated only after successful switches to a different workspace
+- intended to behave like a workspace-level equivalent of `cd -`
+- should stay minimal and explicit
 
-## 15. Configuration Contract
+## 20. Shell Integration Contract
 
-Repo-scoped config should live at:
+Shell integration exists so `switch` can actually change directories.
 
-```text
-.jj/repo/navi/config.toml
-```
-
-Planned config keys:
-
-```toml
-workspace_template = "../{repo}.{workspace}"
-remove.delete_dir_by_default = false
-list.show_absolute_paths = false
-shell.auto_detect = true
-```
-
-Config should be additive and unsurprising.
-
-## 16. Hook Contract
-
-Planned minimal hooks:
-
-- `post-create`
-- `post-switch`
-- `pre-remove`
-
-Hooks are shell commands.
-
-Planned environment variables:
-
-```text
-NAVI_WORKSPACE
-NAVI_WORKSPACE_PATH
-NAVI_REPO_ROOT
-```
-
-Example:
-
-```toml
-post-create = "npm install"
-```
-
-Hooks must remain optional and lightweight.
-
-## 17. Command Specifications
-
-### `switch`
-
-```sh
-navi switch <workspace>
-```
-
-Behavior:
-
-1. discover current workspace
-2. derive repo name
-3. compute target path from template
-4. if workspace exists, print the target path for shell usage
-5. if it does not exist, return an error
-
-Error shape:
-
-```text
-error: workspace does not exist
-hint: use --create
-```
-
-### `switch --create`
-
-```sh
-navi switch --create <workspace>
-```
-
-Behavior:
-
-```sh
-jj workspace add --name <workspace> <path>
-```
-
-Optional revision:
-
-```sh
-navi switch --create <workspace> --revision <revset>
-```
-
-Behavior:
-
-```sh
-jj workspace add --name <workspace> -r <revset> <path>
-```
-
-### `list`
-
-```sh
-navi list
-```
-
-v1 output:
-
-- marker
-- workspace
-- path
-- commit
-- message
-
-Illustrative later output:
-
-```text
-@ feature-auth  ../repo.feature-auth   a1b2c3d  Add authentication
-  bugfix-api    ../repo.bugfix-api     d9f7e1a  Fix pagination
-```
-
-### `remove`
-
-```sh
-navi remove <workspace>
-```
-
-Base behavior:
-
-```sh
-jj workspace forget <workspace>
-```
-
-Deferred flags:
-
-- `--delete-dir`
-- `--force`
-
-Current v1 behavior:
-
-- forgets the workspace via `jj workspace forget`
-- keeps the workspace directory on disk
-- requires an explicit workspace name
-- refuses to remove the current workspace
-
-### `config shell install`
-
-```sh
-navi config shell install
-```
-
-Goal:
-
-- make `switch` actually change directories in supported shells
-
-Related init command:
-
-```sh
-navi config shell init <bash|zsh>
-```
-
-Current v1 behavior:
-
-- `config shell init` prints a shell wrapper that sets `NAVI_DIRECTIVE_FILE`
-- `config shell install` installs one managed block into the shell rc file
-- `switch` writes shell-safe `cd` directives when `NAVI_DIRECTIVE_FILE` is set
-- `switch` still prints the target path when shell integration is not active
-
-Planned supported shells:
+Current supported shells:
 
 - bash
 - zsh
-- optional fish later
 
-## 18. Testing Strategy
+Current behavior:
 
-Tests should primarily use real `jj`.
+- `config shell init` prints a wrapper script
+- `config shell install` installs one managed block in the shell rc file
+- `switch` writes shell-safe `cd` directives when integration is active
+- otherwise `switch` prints the destination path
 
-Coverage areas:
+Fish is deferred.
 
-- workspace discovery
-- `.jj/repo` pointer resolution
-- multi-workspace behavior
+## 21. Architecture Principles
+
+The architecture should stay stable even if files move.
+
+Core boundaries:
+
+- binary entrypoints stay thin
+- CLI parsing and dispatch have one source of truth
+- command handlers orchestrate, not own JJ mechanics
+- repo logic lives behind `src/repo/`
+- output formatting stays separate from repo logic
+- typed domain constraints should exist at boundaries
+
+Do:
+
+- keep `switch` primary
+- centralize path recovery in the repo layer
+- favor real `jj` integration tests
+- keep metadata additive
+- keep non-obvious JJ behavior explicit in the model
+
+Do not:
+
+- add a top-level `create` command
+- bypass the repo layer from CLI handlers
+- trust JJ-reported paths blindly
+- use metadata path lookup as a proxy for metadata record existence
+- reimplement JJ workspace internals
+- bloat the CLI surface before the core loop is complete
+
+## 22. Current Code Reference Points
+
+Current code landmarks:
+
+- `src/main.rs` - `navi` binary entrypoint
+- `src/bin/nv.rs` - `nv` shorthand binary entrypoint
+- `src/app.rs` - CLI parsing and dispatch
+- `src/cli/` - command handlers
+- `src/repo/` - workspace discovery, path planning, metadata, and JJ integration
+- `src/types.rs` - typed domain and render-ready values
+- `src/error.rs` - typed app errors
+- `src/output.rs` - CLI rendering and shell directive helpers
+- `src/doctor.rs` - typed diagnostics model
+- `tests/common/` - real `jj` integration harness
+
+## 23. Current Implementation Status
+
+Current target crate version:
+
+- `0.2.0`
+
+Current implemented scope:
+
+- repo discovery from nested paths
+- `.jj/repo` pointer resolution including relative pointers
+- JJ version floor enforcement
+- deterministic workspace path planning
 - `switch`
 - `switch --create`
 - `switch --create --revision`
-- `list` formatting
-- `remove`
-- metadata consistency
-- hooks behavior
-- shell integration generation
+- path recovery for missing JJ workspace-path records
+- `list` with marker, statuses, path, commit, and message
+- `doctor`
+- `remove` as safe forget-only cleanup
+- repo-scoped config file creation
+- workspace metadata storage
+- shell integration for bash and zsh
+- both `navi` and `nv`
+- real `jj` integration tests
 
-Testing philosophy:
+Not implemented yet:
 
-- prefer integration tests that exercise real `jj`
-- keep mock-heavy tests secondary
-- test behavior, not internal implementation details
+- `switch -`
+- `switch @`
+- `list --json`
+- `remove --delete-dir`
+- hooks
+- merge workflow
+- fish shell support
+- cross-workspace action/status view beyond current path-health table
 
-## 19. Acceptance Criteria
+## 24. v2 Scope
 
-### Global product criteria
+### v2 goal
+
+Finish the core navigation workflow.
+
+### v2 themes
+
+- faster switching
+- stronger list output
+- safer but more complete cleanup
+- support for shells and agents through stable machine-readable output
+
+### v2 features
+
+1. `switch -` previous-workspace support
+2. `switch @` current-workspace alias
+3. `list --json`
+4. better alignment between `list` and `doctor` health models
+5. optional `remove --delete-dir` for validated non-current workspaces
+6. documentation and onboarding that center `switch` and `list`, not `doctor`
+
+### v2 non-goals
+
+- hooks
+- merge automation
+- batch workspace creation
+- PR or CI integration
+- interactive picker
+
+## 25. v3 Scope
+
+### v3 goal
+
+Add optional automation on top of trusted navigation primitives.
+
+### v3 likely features
+
+1. `merge`
+2. lifecycle hooks
+3. execute-after-switch support
+4. optional presets or batch creation
+
+### v3 guardrail
+
+Automation must compose on top of `switch`, `list`, and `remove`.
+It must not distort the product into a parallel replacement for JJ itself.
+
+## 26. Acceptance Criteria
+
+### Global criteria
 
 The product is healthy when:
 
 1. workspace paths are deterministic
-2. the CLI remains compatible with native `jj`
-3. navigation stays fast and predictable
-4. repo state is derived from `jj`, not shadowed by `navi`
-5. binary entrypoints remain thin and shared logic stays centralized
-
-### v0 acceptance criteria
-
-1. `navi switch --create feature-x` creates a workspace and prints the target path.
-2. `navi switch feature-x` prints the path to an existing workspace.
-3. `navi list` shows a readable table with workspace and path.
-4. workspace discovery works from nested directories.
-5. workspace paths follow deterministic template rules.
-6. `navi` and `nv` both work.
-
-### v1 acceptance criteria
-
-1. shell integration exists for bash and zsh.
-2. `navi switch` can actually change directories through shell integration.
-3. `navi remove` forgets a workspace safely.
-4. `navi` metadata exists under `.jj/repo/navi/`.
-5. repo-scoped config exists under `.jj/repo/navi/config.toml`.
-6. `list` output includes richer workspace information.
+2. switching is fast and predictable
+3. degraded path state is surfaced clearly instead of hidden
+4. repo truth is derived from `jj`, not duplicated by `navi`
+5. CLI behavior remains conservative when JJ semantics are ambiguous
+6. command handlers remain thin and shared logic stays centralized
 
 ### v2 acceptance criteria
 
-1. `navi list` gives useful observability across many workspaces.
-2. `navi doctor` identifies broken or suspicious workspace state.
-3. `navi prune` can safely clean obsolete workspace records and directories.
-4. workspace health/status reporting remains easy to read.
+1. `navi switch -` returns to the previous workspace using repo-scoped state.
+2. `navi switch @` resolves the current workspace explicitly.
+3. `navi list --json` emits structured machine-readable workspace data.
+4. `list` and `doctor` use the same underlying path-health model.
+5. `remove --delete-dir` deletes only a validated, explicit, non-current workspace directory.
+6. README and docs present `switch` and `list` as the primary user workflow.
 
 ### v3 acceptance criteria
 
-1. hooks run predictably with documented env vars.
-2. batch workspace creation is possible.
-3. automation features stay optional and do not distort the core navigation model.
-4. `jj-navi` still acts as a UX layer, not a replacement VCS workflow engine.
+1. `merge` provides a clear, JJ-compatible workspace completion flow.
+2. hooks run predictably with documented lifecycle points.
+3. execute-after-switch behavior composes safely with shell integration.
+4. automation remains optional and does not obscure JJ semantics.
 
-## 20. Version Roadmap
+## 27. Testing Strategy
 
-### v0 - Minimal Navigator
+Testing should primarily use real `jj`.
 
-Goal:
+Coverage priorities:
 
-- validate the workspace navigation model
+- nested workspace discovery
+- `.jj/repo` pointer resolution
+- switching existing workspaces
+- creating workspaces
+- switching with degraded JJ path metadata
+- previous-workspace state
+- `switch @`
+- `list` human output and JSON output
+- safe cleanup behavior
+- shell directive generation
+- shell install block management
+- `navi` and `nv` parity
 
-Features:
+Testing philosophy:
 
-- deterministic path resolution
-- `switch`
-- `switch --create`
-- `switch --create --revision`
-- `list`
-- `nv` shorthand binary
+- prefer integration tests for JJ-facing behavior
+- keep unit tests focused on deterministic logic you own
+- test behavior, not implementation details
 
-Non-goals:
+## 28. Current Test Coverage Snapshot
 
-- shell integration
-- metadata storage
-- hooks
-- directory deletion
-- advanced workspace status
-
-### v1 - Core Workspace UX
-
-Goal:
-
-- deliver production-ready navigation
-
-Features:
-
-- shell integration
-- `remove`
-- repo-scoped config
-- metadata storage
-- improved `list` output
-
-Non-goals:
-
-- workspace diagnostics
-- automation workflows
-- agent launching
-
-### v2 - Workspace Observability
-
-Goal:
-
-- make many parallel workspaces manageable
-
-Features:
-
-- richer `list`
-- workspace health checks
-- `navi doctor`
-- `navi prune`
-
-Non-goals:
-
-- workflow automation
-- PR tooling
-
-### v3 - Workflow Automation
-
-Goal:
-
-- enable optional automation on top of the navigation model
-
-Features:
-
-- hooks
-- workspace presets
-- command execution after switch
-- batch workspace creation
-
-Non-goals:
-
-- replacing native `jj`
-- changing Jujutsu semantics
-
-## 21. Current Implementation Status
-
-Current target version:
-
-- `0.1.3`
-
-Target `jj` baseline:
-
-- `0.39.0`
-
-Current implemented scope:
-
-- this repo currently implements v1
-
-Implemented today:
-
-- Rust crate with shared library + binaries
-- binaries: `navi`, `nv`
-- deterministic path planning using `../{repo}.{workspace}`
-- workspace discovery by walking up to `.jj`
-- `.jj/repo` pointer resolution, including relative pointers
-- current workspace detection via `jj workspace list -T ...`
-- repo name derivation that works in default and secondary workspaces
-- `switch`
-- `switch --create`
-- `switch --create --revision`
-- `remove`
-- richer `list` with marker/path/commit/message
-- repo-scoped config at `.jj/repo/navi/config.toml`
-- workspace metadata at `.jj/repo/navi/workspaces.toml`
-- `config shell init` for bash and zsh
-- `config shell install` for bash and zsh
-- shell directive output for `switch`
-- real `jj` integration tests
-- npm scaffold with matching version
-- GitHub test and release scaffolding
-
-Known current limits:
-
-- `remove` is forget-only by default; no `--delete-dir` yet
-- no hooks yet
-- no fish shell support yet
-- no cross-workspace dirty status yet
-
-Current code note:
-
-- repo-backed commands must fail fast on unsupported `jj` versions below `0.39.0`
-
-## 22. Current Test Coverage
-
-Current tests cover:
+Current tests already cover:
 
 - invalid workspace name validation
-- output table rendering
+- output rendering for list and doctor
 - relative `.jj/repo` pointer handling
-- switching to an existing workspace
-- creating a workspace
+- switching existing workspaces
+- creating workspaces
 - creating with explicit revision
+- workspace path fallback and warning behavior
 - repo-scoped config creation and parse failures
 - metadata write, cleanup, and malformed-state failures
-- listing workspaces with marker/path/commit/message
+- list path statuses such as inferred, missing, stale, and jj-only
 - nested-dir discovery from secondary workspaces
 - safe remove flows
 - shell init rendering
-- shell install managed block updates
-- switch directive emission and shell escaping
+- shell install managed block behavior
+- shell directive emission and escaping
 - `nv` shorthand behavior
-- `navi --help` naming
-- `nv --help` naming
 
-## 23. References
+## 29. Documentation Priorities
+
+Docs should explain the product in this order:
+
+1. what `jj-navi` is
+2. the core workflow
+3. how shell integration works
+4. how `list` and `doctor` differ
+5. JJ limitations and fallback behavior
+
+Docs should avoid making `doctor` look like the center of the product.
+
+## 30. References
 
 Reference repositories and docs:
 
@@ -680,12 +614,3 @@ Reference repositories and docs:
 - Worktrunk: <https://github.com/max-sixty/worktrunk>
 - Worktrunk docs: <https://worktrunk.dev>
 - jj-ryu: <https://github.com/dmmulroy/jj-ryu>
-
-Relevant upstream workspace history and ergonomics threads:
-
-- Multiple working copies origin: <https://github.com/jj-vcs/jj/issues/13>
-- Retrieve another workspace path: <https://github.com/jj-vcs/jj/issues/6854>
-- `jj workspace root --name` edge cases: <https://github.com/jj-vcs/jj/issues/8758>
-- Tracking issue for colocated workspaces: <https://github.com/jj-vcs/jj/issues/8052>
-- Colocated repos with multiple workspaces discussion: <https://github.com/jj-vcs/jj/discussions/7470>
-- `v0.35.0` release discussion: <https://github.com/jj-vcs/jj/discussions/7956>
