@@ -95,19 +95,19 @@ jobs:
           print(f"dispatch: release publish for v{version}")
           subprocess.check_call(
               [
-                   "gh",
-                   "api",
-                   "--method",
-                   "POST",
-                   f"repos/{repo}/dispatches",
-                   "-f",
-                   "event_type=release-publish-requested",
-                   "-f",
-                   f"client_payload[version]={version}",
-                   "-f",
-                   f"client_payload[tag]=v{version}",
-                   "-f",
-                   f"client_payload[release_ref]={merge_commit_sha}",
-               ]
-           )
-           PY
+                  "gh",
+                  "api",
+                  "--method",
+                  "POST",
+                  f"repos/{repo}/dispatches",
+                  "-f",
+                  "event_type=release-publish-requested",
+                  "-f",
+                  f"client_payload[version]={version}",
+                  "-f",
+                  f"client_payload[tag]=v{version}",
+                  "-f",
+                  f"client_payload[release_ref]={merge_commit_sha}",
+              ]
+          )
+          PY
