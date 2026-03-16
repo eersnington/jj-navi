@@ -119,7 +119,6 @@ Default workspace path template:
 - `remove` requires an explicit workspace name and refuses to remove the current workspace
 - `remove` is forget-only by default; it does not delete workspace directories
 - supported shells today: `bash`, `zsh`
-- fish support, hooks, `prune`, and cross-workspace dirty status are planned in roadmap
 
 ## Maintainer notes
 
