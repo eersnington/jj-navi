@@ -1,10 +1,8 @@
 name: Detect Release Publish
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "CHANGELOG.md"
+  pull_request_target:
+    types: [closed]
 
 permissions:
   contents: write
@@ -32,12 +30,17 @@ jobs:
 
           semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
           repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
 
-          def gh_json(*args: str) -> object:
-              return json.loads(subprocess.check_output(["gh", *args], text=True))
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+              event = json.load(handle)
+          pr = event.get("pull_request")
+          if not isinstance(pr, dict):
+              sys.exit("pull_request payload missing")
 
           def release_branch_version(pr: dict[str, object]) -> str | None:
+              if pr.get("merged") is not True:
+                  return None
+
               user = pr.get("user")
               if not isinstance(user, dict):
                   return None
@@ -75,52 +78,36 @@ jobs:
               if not isinstance(title, str) or not title.startswith("release: v"):
                   return None
 
-              if pr.get("merge_commit_sha") != sha:
-                  return None
-
-              if not pr.get("merged_at"):
+              if not isinstance(pr.get("merge_commit_sha"), str) or pr.get("merge_commit_sha") == "":
                   return None
 
               return version
 
-          pulls = gh_json(
-              "api",
-              f"repos/{repo}/commits/{sha}/pulls",
-              "-H",
-              "Accept: application/vnd.github+json",
-          )
-          if not isinstance(pulls, list):
-              sys.exit("commit pull lookup returned non-list")
-
-          match = None
-          for pr in pulls:
-              if not isinstance(pr, dict):
-                  continue
-              version = release_branch_version(pr)
-              if version is None:
-                  continue
-              match = (version, pr)
-              break
-
-          if match is None:
+          version = release_branch_version(pr)
+          if version is None:
+              print("skip: closed PR is not a merged bot-authored release PR")
               sys.exit(0)
 
-          version, _pr = match
+          merge_commit_sha = pr.get("merge_commit_sha")
+          if not isinstance(merge_commit_sha, str) or merge_commit_sha == "":
+              sys.exit("release PR merge_commit_sha missing")
+
+          print(f"dispatch: release publish for v{version}")
           subprocess.check_call(
               [
-                  "gh",
-                  "api",
-                  "--method",
-                  "POST",
-                  f"repos/{repo}/dispatches",
-                  "-f",
-                  "event_type=release-publish-requested",
-                  "-f",
-                  f"client_payload[version]={version}",
-                  "-f",
-                  f"client_payload[tag]=v{version}",
-                  "-f",
-                  f"client_payload[release_ref]={sha}",
-              ]
-          )
-          PY
+                   "gh",
+                   "api",
+                   "--method",
+                   "POST",
+                   f"repos/{repo}/dispatches",
+                   "-f",
+                   "event_type=release-publish-requested",
+                   "-f",
+                   f"client_payload[version]={version}",
+                   "-f",
+                   f"client_payload[tag]=v{version}",
+                   "-f",
+                   f"client_payload[release_ref]={merge_commit_sha}",
+               ]
+           )
+           PY
