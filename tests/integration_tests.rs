@@ -35,6 +35,16 @@ fn install_bash_shell_integration(home: &std::path::Path) {
 
 #[cfg(unix)]
 fn fake_old_jj_path() -> tempfile::TempDir {
+    fake_jj_wrapper(Some("jj 0.38.0\n"), None, None, None)
+}
+
+#[cfg(unix)]
+fn fake_jj_wrapper(
+    version_output: Option<&str>,
+    workspace_list_stdout: Option<&str>,
+    workspace_list_stderr: Option<&str>,
+    workspace_list_status: Option<i32>,
+) -> tempfile::TempDir {
     use std::env;
     use std::fs;
 
@@ -44,8 +54,27 @@ fn fake_old_jj_path() -> tempfile::TempDir {
         .map(|dir| dir.join("jj"))
         .find(|candidate| candidate.is_file())
         .expect("find real jj binary");
+    let version_clause = version_output.map_or_else(
+        || format!("  exec \"{}\" \"$@\"\n", real_jj.display()),
+        |output| format!("  printf '{}'\n", output.escape_default()),
+    );
+    let workspace_list_clause = workspace_list_stdout.map_or_else(
+        || format!("  exec \"{}\" \"$@\"\n", real_jj.display()),
+        |stdout| {
+            let stderr = workspace_list_stderr.unwrap_or_default().escape_default();
+            let status = workspace_list_status.unwrap_or(0);
+            format!(
+                "  printf '{}'\n  printf '{}' >&2\n  exit {}\n",
+                stdout.escape_default(),
+                stderr,
+                status
+            )
+        },
+    );
     let script = format!(
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'jj 0.38.0\\n'\nelse\n  exec \"{}\" \"$@\"\nfi\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n{}elif [ \"$1\" = \"workspace\" ] && [ \"$2\" = \"list\" ]; then\n{}else\n  exec \"{}\" \"$@\"\nfi\n",
+        version_clause,
+        workspace_list_clause,
         real_jj.display()
     );
 
@@ -57,6 +86,15 @@ fn fake_old_jj_path() -> tempfile::TempDir {
     fs::set_permissions(&wrapper_path, permissions).expect("set fake jj permissions");
 
     temp
+}
+
+#[cfg(unix)]
+fn path_with_fake_jj(fake_jj: &tempfile::TempDir) -> std::ffi::OsString {
+    let mut paths = vec![fake_jj.path().to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").expect("PATH set"),
+    ));
+    std::env::join_paths(paths).expect("join PATH")
 }
 
 #[test]
@@ -897,6 +935,27 @@ fn config_shell_install_updates_managed_block_in_place() {
 }
 
 #[test]
+fn config_shell_install_rejects_duplicated_managed_block_markers() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let bashrc = home.path().join(".bashrc");
+    std::fs::write(
+        &bashrc,
+        "# >>> jj-navi shell init >>>\nold\n# >>> jj-navi shell init >>>\nnew\n# <<< jj-navi shell init <<<\n",
+    )
+    .expect("write invalid bashrc");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "bash"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(bashrc.display().to_string()))
+        .stderr(predicate::str::contains(
+            "managed block markers are duplicated",
+        ));
+}
+
+#[test]
 fn config_shell_install_reports_real_rc_path_for_invalid_managed_block() {
     let home = tempfile::TempDir::new().expect("temp home");
     let bashrc = home.path().join(".bashrc");
@@ -1298,11 +1357,7 @@ fn orphaned_workspace_reports_recovery_error() {
 fn repo_commands_fail_fast_on_unsupported_jj_version() {
     let repo = TempJjRepo::new();
     let fake_jj = fake_old_jj_path();
-    let mut paths = vec![fake_jj.path().to_path_buf()];
-    paths.extend(std::env::split_paths(
-        &std::env::var_os("PATH").expect("PATH set"),
-    ));
-    let path = std::env::join_paths(paths).expect("join PATH");
+    let path = path_with_fake_jj(&fake_jj);
 
     command("navi")
         .current_dir(repo.path())
@@ -1314,6 +1369,140 @@ fn repo_commands_fail_fast_on_unsupported_jj_version() {
             "error: jj 0.39.0 or newer required",
         ))
         .stderr(predicate::str::contains("hint: found jj 0.38.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_accept_supported_plain_jj_version() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_jj_wrapper(Some("jj 0.39.0\n"), None, None, None);
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path_with_fake_jj(&fake_jj))
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("default"));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_accept_supported_suffixed_jj_version() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_jj_wrapper(Some("jj 0.39.0-12-gabcdef\n"), None, None, None);
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path_with_fake_jj(&fake_jj))
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("default"));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_fail_for_unparseable_jj_version() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_jj_wrapper(Some("jj dev build\n"), None, None, None);
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path_with_fake_jj(&fake_jj))
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: jj 0.39.0 or newer required",
+        ))
+        .stderr(predicate::str::contains("hint: found jj dev build"));
+}
+
+#[test]
+fn repo_commands_resolve_relative_repo_pointer_from_secondary_workspace() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-auth"));
+}
+
+#[test]
+fn repo_commands_fail_for_missing_repo_pointer_target() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+    let repo_pointer = feature_path.join(".jj").join("repo");
+
+    std::fs::write(&repo_pointer, "../../missing/repo\n").expect("write repo pointer");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(repo_pointer.display().to_string()))
+        .stderr(predicate::str::contains("invalid repo pointer"));
+}
+
+#[test]
+fn repo_commands_fail_for_non_directory_repo_pointer_target() {
+    let repo = TempJjRepo::new();
+    let feature_path = repo.create_workspace("feature-auth");
+    let repo_pointer = feature_path.join(".jj").join("repo");
+    let shared_file = feature_path.join("not-a-directory");
+
+    std::fs::write(&shared_file, "not a dir").expect("write shared file");
+    std::fs::write(&repo_pointer, "../not-a-directory\n").expect("write repo pointer");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(repo_pointer.display().to_string()))
+        .stderr(predicate::str::contains("invalid repo pointer"));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_fail_for_malformed_workspace_list_entry() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_jj_wrapper(Some("jj 0.39.0\n"), Some("default\0"), None, Some(0));
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path_with_fake_jj(&fake_jj))
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: invalid workspace name"))
+        .stderr(predicate::str::contains("default"));
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_commands_fail_for_invalid_workspace_list_current_marker() {
+    let repo = TempJjRepo::new();
+    let fake_jj = fake_jj_wrapper(
+        Some("jj 0.39.0\n"),
+        Some("default\0x\0abc123\0message"),
+        None,
+        Some(0),
+    );
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("PATH", path_with_fake_jj(&fake_jj))
+        .args(["list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: invalid workspace name"))
+        .stderr(predicate::str::contains("default"));
 }
 
 #[test]

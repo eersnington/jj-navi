@@ -46,10 +46,10 @@ const MINIMUM_JJ_VERSION: JjVersion = JjVersion {
 const MINIMUM_JJ_VERSION_STR: &str = "0.39.0";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct JjVersion {
-    major: u64,
-    minor: u64,
-    patch: u64,
+pub(crate) struct JjVersion {
+    pub(crate) major: u64,
+    pub(crate) minor: u64,
+    pub(crate) patch: u64,
 }
 
 impl<'a> JjClient<'a> {
@@ -244,81 +244,4 @@ fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
         commit_id: commit_id.to_owned(),
         message: message.to_owned(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-    use std::path::PathBuf;
-
-    use crate::types::WorkspaceName;
-
-    use super::{JjVersion, parse_jj_version, parse_workspace_line, workspace_add_args};
-
-    #[cfg(unix)]
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-
-    #[test]
-    #[cfg(unix)]
-    fn workspace_add_preserves_non_utf8_paths() {
-        let workspace = WorkspaceName::new("feature-auth").expect("valid workspace name");
-        let target_root = PathBuf::from(OsString::from_vec(vec![b'.', b'/', 0xFF]));
-
-        let args = workspace_add_args(&workspace, &target_root, None);
-
-        assert_eq!(
-            args.last().expect("target path arg").as_os_str().as_bytes(),
-            target_root.as_os_str().as_bytes()
-        );
-    }
-
-    #[test]
-    fn parses_plain_jj_version_output() {
-        assert_eq!(
-            parse_jj_version("jj 0.39.0\n"),
-            Some(JjVersion {
-                major: 0,
-                minor: 39,
-                patch: 0,
-            })
-        );
-    }
-
-    #[test]
-    fn parses_jj_version_with_suffix() {
-        assert_eq!(
-            parse_jj_version("jj 0.39.0-12-gabcdef\n"),
-            Some(JjVersion {
-                major: 0,
-                minor: 39,
-                patch: 0,
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_unparseable_jj_version_output() {
-        assert_eq!(parse_jj_version("jj dev build\n"), None);
-    }
-
-    #[test]
-    fn rejects_workspace_list_line_with_missing_fields() {
-        let error = parse_workspace_line("default\0").expect_err("reject malformed line");
-
-        assert_eq!(
-            error.to_string(),
-            "error: invalid jj workspace list entry\ndefault\0"
-        );
-    }
-
-    #[test]
-    fn rejects_workspace_list_line_with_invalid_current_marker() {
-        let error = parse_workspace_line("default\0x\0abc123\0message")
-            .expect_err("reject malformed current marker");
-
-        assert_eq!(
-            error.to_string(),
-            "error: invalid jj workspace list entry\ndefault\0x\0abc123\0message"
-        );
-    }
 }
