@@ -265,6 +265,56 @@ fn switch_uses_template_fallback_with_warning_when_metadata_is_absent() {
 }
 
 #[test]
+fn switch_uses_repo_primary_root_for_default_when_jj_path_is_missing() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "default"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../{}\n", repo.repo_name())))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn switch_uses_repo_primary_root_for_default_from_nested_secondary_directory() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    let nested_path = feature_path.join("nested").join("dir");
+    std::fs::create_dir_all(&nested_path).expect("create nested path");
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(&nested_path)
+        .args(["switch", "default"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../../../{}\n", repo.repo_name())))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
 fn switch_fails_with_last_known_path_when_fallback_directory_is_missing() {
     let repo = TempJjRepo::new();
 
@@ -343,6 +393,32 @@ fn list_uses_actual_jj_workspace_path_for_non_navi_workspace() {
         ))
         .stdout(predicate::str::contains("jj-only"))
         .stdout(predicate::str::contains("feature-auth"));
+}
+
+#[test]
+fn list_uses_repo_primary_root_for_default_when_jj_path_is_missing() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("default"))
+        .stdout(predicate::str::contains(format!("../{}", repo.repo_name())))
+        .stdout(predicate::str::contains(format!("../{}.default", repo.repo_name())).not())
+        .stdout(predicate::str::contains("[ok]"));
 }
 
 #[test]
@@ -608,6 +684,37 @@ fn doctor_does_not_treat_empty_metadata_path_as_missing_metadata() {
         .success()
         .stdout(predicate::str::contains("Doctor [ healthy ]"))
         .stdout(predicate::str::contains("has no navi metadata").not());
+}
+
+#[test]
+fn doctor_uses_repo_primary_root_for_default_when_jj_path_is_missing() {
+    let repo = TempJjRepo::new();
+    let home = tempfile::TempDir::new().expect("temp home");
+    install_bash_shell_integration(home.path());
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(&feature_path)
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/bash")
+        .args(["doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Doctor [ healthy ]"))
+        .stdout(
+            predicate::str::contains("default - workspace 'default' directory is missing").not(),
+        )
+        .stdout(predicate::str::contains(format!("../{}.default", repo.repo_name())).not());
 }
 
 #[test]

@@ -32,6 +32,7 @@ pub struct NaviWorkspace {
 pub(crate) enum WorkspacePathSource {
     CurrentWorkspace,
     JjRecorded,
+    RepoPrimary,
     NaviMetadata,
     Template,
 }
@@ -333,6 +334,7 @@ impl NaviWorkspace {
     /// Resolution order:
     /// - current workspace root discovered from the local filesystem
     /// - JJ-recorded workspace path
+    /// - validated primary workspace root derived from shared repo storage
     /// - `navi` metadata path for navi-created workspaces
     /// - deterministic template path
     ///
@@ -363,6 +365,17 @@ impl NaviWorkspace {
                 return candidate;
             }
             fallback = Some(candidate);
+        }
+
+        if let Some(path) = repo_primary_workspace_root(&self.repo_storage_path, workspace) {
+            let candidate =
+                self.resolve_candidate(path, workspace, WorkspacePathSource::RepoPrimary);
+            if candidate.is_switchable() {
+                return candidate;
+            }
+            if fallback.is_none() {
+                fallback = Some(candidate);
+            }
         }
 
         if let Some(path) = metadata.workspace_path(workspace) {
@@ -603,7 +616,9 @@ impl DoctorWorkspace {
                 format!("workspace '{workspace}' is using a validated template path"),
                 format!("resolved from workspace template: {display_path}"),
             ),
-            WorkspacePathSource::CurrentWorkspace | WorkspacePathSource::JjRecorded => {
+            WorkspacePathSource::CurrentWorkspace
+            | WorkspacePathSource::JjRecorded
+            | WorkspacePathSource::RepoPrimary => {
                 unreachable!("only inferred sources should reach doctor inferred-path findings")
             }
         };
@@ -661,6 +676,17 @@ impl DoctorWorkspace {
                 return candidate;
             }
             fallback = Some(candidate);
+        }
+
+        if let Some(path) = repo_primary_workspace_root(&self.repo_storage_path, workspace) {
+            let candidate =
+                self.resolve_candidate(path, workspace, WorkspacePathSource::RepoPrimary);
+            if candidate.is_switchable() {
+                return candidate;
+            }
+            if fallback.is_none() {
+                fallback = Some(candidate);
+            }
         }
 
         if self.metadata_is_valid
@@ -877,6 +903,17 @@ fn metadata_status(
     } else {
         WorkspaceMetadataStatus::PresentWithoutPath
     }
+}
+
+fn repo_primary_workspace_root(
+    repo_storage_path: &Path,
+    workspace: &WorkspaceName,
+) -> Option<PathBuf> {
+    (workspace.as_str() == DEFAULT_WORKSPACE_NAME)
+        .then_some(repo_storage_path)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
 }
 
 fn workspace_list_statuses(
