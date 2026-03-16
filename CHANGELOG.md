@@ -2,6 +2,14 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.2.0 - 2026-03-16
+
+### Patch
+
+- add doctor command for workspace diagnostics (#40, @eersnington)
+- improved navi list output (#42, @eersnington)
+- fix default workspace recovery when jj has no recorded path (#43, @eersnington)
+
 ## v0.1.3 - 2026-03-14
 
 ### Patch
@@ -53,6 +61,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 
