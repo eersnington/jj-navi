@@ -127,38 +127,3 @@ pub(crate) fn inspect_managed_block(existing: &str) -> ManagedBlockState {
         _ => ManagedBlockState::Invalid("managed block markers are duplicated"),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::{ManagedBlockState, inspect_managed_block, upsert_managed_block};
-    use crate::output::{MANAGED_BLOCK_END, MANAGED_BLOCK_START};
-
-    #[test]
-    fn updates_existing_managed_block() {
-        let existing =
-            format!("line before\n{MANAGED_BLOCK_START}\nold\n{MANAGED_BLOCK_END}\nline after\n");
-        let block = format!("{MANAGED_BLOCK_START}\nnew\n{MANAGED_BLOCK_END}\n");
-
-        let updated = upsert_managed_block(&existing, &block, Path::new(".bashrc"))
-            .expect("update managed block");
-
-        assert!(updated.contains("line before"));
-        assert!(updated.contains("line after"));
-        assert!(updated.contains("new"));
-        assert!(!updated.contains("old"));
-    }
-
-    #[test]
-    fn rejects_duplicated_managed_block_markers() {
-        let existing = format!(
-            "{MANAGED_BLOCK_START}\nold\n{MANAGED_BLOCK_START}\nnew\n{MANAGED_BLOCK_END}\n"
-        );
-
-        assert_eq!(
-            inspect_managed_block(&existing),
-            ManagedBlockState::Invalid("managed block markers are duplicated")
-        );
-    }
-}

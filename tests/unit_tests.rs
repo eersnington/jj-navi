@@ -2,14 +2,18 @@ use jj_navi::doctor::{
     DoctorFinding, DoctorFindingCode, DoctorReport, DoctorScope, DoctorSeverity,
 };
 use jj_navi::output::{
-    DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, render_doctor_report,
-    render_doctor_report_json, render_shell_init, render_shell_install_block,
-    render_workspace_table,
+    DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
+    render_doctor_report, render_doctor_report_json, render_error_message, render_shell_init,
+    render_shell_install_block, render_workspace_table,
 };
 use jj_navi::types::{
     ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
 };
 use std::path::PathBuf;
+
+// =============================================================================
+// Workspace Name Tests
+// =============================================================================
 
 #[test]
 fn rejects_invalid_workspace_names() {
@@ -40,6 +44,55 @@ fn renders_table_with_header() {
     assert!(!rendered.contains("../repo.feature-auth [ inferred ]"));
     assert!(rendered.contains("abc123"));
     assert!(rendered.contains("Feature auth work"));
+}
+
+#[test]
+fn renders_workspace_table_for_current_workspace() {
+    let entries = vec![
+        WorkspaceListEntry {
+            is_current: true,
+            name: WorkspaceName::new("default").expect("valid workspace"),
+            statuses: vec![WorkspaceListStatus::Ok],
+            path: PathBuf::from("."),
+            path_is_inferred: false,
+            path_state: WorkspacePathState::Confirmed,
+            commit_id: String::from("abc123"),
+            message: String::from("Current work"),
+        },
+        WorkspaceListEntry {
+            is_current: false,
+            name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+            statuses: vec![WorkspaceListStatus::Inferred],
+            path: PathBuf::from("../repo.feature-auth"),
+            path_is_inferred: true,
+            path_state: WorkspacePathState::Inferred,
+            commit_id: String::from("def456"),
+            message: String::from("Feature auth work"),
+        },
+    ];
+
+    let rendered = render_workspace_table(&entries);
+
+    assert!(rendered.contains("cur"));
+    assert!(rendered.contains("workspace"));
+    assert!(rendered.contains("status"));
+    assert!(rendered.contains("commit"));
+    assert!(rendered.contains("Feature auth work"));
+    assert!(rendered.contains("[ inferred ]"));
+    assert!(!rendered.contains("../repo.feature-auth [ inferred ]"));
+}
+
+// =============================================================================
+// Shell Rendering Tests
+// =============================================================================
+
+#[test]
+fn renders_bash_shell_init() {
+    let rendered = render_shell_init("navi", ShellKind::Bash);
+
+    assert!(rendered.contains("navi()"));
+    assert!(rendered.contains(DIRECTIVE_FILE_ENV_VAR));
+    assert!(rendered.contains("command navi \"$@\""));
 }
 
 #[test]
@@ -98,6 +151,26 @@ fn renders_shell_install_block() {
     assert!(rendered.contains(MANAGED_BLOCK_END));
     assert!(rendered.contains("eval \"$(command navi config shell init bash)\""));
 }
+
+#[test]
+fn escapes_single_quotes_for_shell_directives() {
+    assert_eq!(
+        escape_shell_single_quotes("../space dir/feature-auth's"),
+        "../space dir/feature-auth'\\''s"
+    );
+}
+
+#[test]
+fn renders_error_message_without_losing_prefixes() {
+    let rendered = render_error_message("error: bad\nhint: try again");
+
+    assert!(rendered.contains("error:"));
+    assert!(rendered.contains("hint:"));
+}
+
+// =============================================================================
+// Doctor Rendering Tests
+// =============================================================================
 
 #[test]
 fn renders_doctor_report() {

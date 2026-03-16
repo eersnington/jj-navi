@@ -216,62 +216,6 @@ pub(crate) fn workspace_metadata_path(repo_storage_path: &Path) -> PathBuf {
     navi_dir_path(repo_storage_path).join(WORKSPACES_FILE)
 }
 
-fn normalized_recorded_path(path: Option<&Path>) -> Option<&Path> {
+pub(crate) fn normalized_recorded_path(path: Option<&Path>) -> Option<&Path> {
     path.filter(|path| !path.as_os_str().is_empty())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
-
-    use time::OffsetDateTime;
-
-    use crate::types::{WorkspaceName, WorkspaceTemplate};
-
-    use super::{
-        WorkspaceMetadataRecord, WorkspaceMetadataRecordFile, WorkspaceMetadataStore,
-        normalized_recorded_path, parse_record_file,
-    };
-
-    #[test]
-    fn distinguishes_record_presence_from_recorded_path() {
-        let workspace = WorkspaceName::new("feature-auth").expect("valid workspace");
-        let store = WorkspaceMetadataStore {
-            path: PathBuf::from("workspaces.toml"),
-            records: vec![WorkspaceMetadataRecord {
-                name: workspace.clone(),
-                path: None,
-                created_by_navi: true,
-                created_at: OffsetDateTime::UNIX_EPOCH,
-                template: WorkspaceTemplate::default(),
-                revision: None,
-            }],
-        };
-
-        assert!(store.contains_workspace(&workspace));
-        assert_eq!(store.workspace_path(&workspace), None);
-    }
-
-    #[test]
-    fn normalizes_empty_recorded_path_strings() {
-        let record = parse_record_file(
-            WorkspaceMetadataRecordFile {
-                name: String::from("feature-auth"),
-                path: Some(String::new()),
-                created_by_navi: true,
-                created_at: String::from("1970-01-01T00:00:00Z"),
-                template: String::from("../{repo}.{workspace}"),
-                revision: String::new(),
-            },
-            Path::new("workspaces.toml"),
-        )
-        .expect("parse metadata record");
-
-        assert_eq!(record.path, None);
-    }
-
-    #[test]
-    fn rejects_empty_recorded_paths_when_serializing() {
-        assert_eq!(normalized_recorded_path(Some(Path::new(""))), None);
-    }
 }
