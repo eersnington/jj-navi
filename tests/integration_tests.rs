@@ -367,7 +367,7 @@ fn list_uses_actual_jj_path_after_config_changes() {
             "../{}.feature-auth",
             repo.repo_name()
         )))
-        .stdout(predicate::str::contains("[ok]"))
+        .stdout(predicate::str::contains("[ ok ]"))
         .stdout(predicate::str::contains("feature-auth"));
 }
 
@@ -418,7 +418,7 @@ fn list_uses_repo_primary_root_for_default_when_jj_path_is_missing() {
         .stdout(predicate::str::contains("default"))
         .stdout(predicate::str::contains(format!("../{}", repo.repo_name())))
         .stdout(predicate::str::contains(format!("../{}.default", repo.repo_name())).not())
-        .stdout(predicate::str::contains("[ok]"));
+        .stdout(predicate::str::contains("[ ok ]"));
 }
 
 #[test]
@@ -1052,7 +1052,7 @@ fn list_prints_workspace_table() {
         .stdout(predicate::str::contains("status"))
         .stdout(predicate::str::contains("@"))
         .stdout(predicate::str::contains("default"))
-        .stdout(predicate::str::contains("[ok]"))
+        .stdout(predicate::str::contains("[ ok ]"))
         .stdout(predicate::str::contains("Feature auth work"))
         .stdout(predicate::str::contains("Bugfix api work"))
         .stdout(predicate::str::contains("commit"))
@@ -1085,7 +1085,7 @@ fn list_uses_current_workspace_root_when_jj_workspace_paths_are_missing() {
         .success()
         .stdout(predicate::str::contains("@    default"))
         .stdout(predicate::str::contains("feature-auth"))
-        .stdout(predicate::str::contains("[inferred]"))
+        .stdout(predicate::str::contains("[ inferred ]"))
         .stdout(predicate::str::contains(format!(
             "../{}.feature-auth",
             repo.repo_name()
@@ -1117,7 +1117,7 @@ fn list_reports_missing_workspace_directory_from_inferred_path() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[inferred] [missing]"))
+        .stdout(predicate::str::contains("[ inferred ] [ missing ]"))
         .stdout(predicate::str::contains(format!(
             "../{}.feature-auth",
             repo.repo_name()
@@ -1145,13 +1145,13 @@ fn list_reports_stale_workspace_directory_from_jj_path_without_inferred_marker()
         .args(["list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[stale]"))
+        .stdout(predicate::str::contains("[ stale ]"))
         .stdout(predicate::str::contains(format!(
             "../{}.feature-auth",
             repo.repo_name()
         )))
         .stdout(predicate::str::contains("feature-auth"))
-        .stdout(predicate::str::contains("[inferred] [stale]").not());
+        .stdout(predicate::str::contains("[ inferred ] [ stale ]").not());
 }
 
 #[test]

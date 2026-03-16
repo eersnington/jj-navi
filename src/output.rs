@@ -1,6 +1,6 @@
 //! Output rendering helpers for CLI-facing text and shell integration.
 
-use anstyle::{Ansi256Color, Effects, Style};
+use anstyle::{Ansi256Color, AnsiColor, Color, Effects, RgbColor, Style};
 use clap::builder::styling::Styles;
 use serde::Serialize;
 use std::fmt::Write;
@@ -8,8 +8,10 @@ use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::io::{IsTerminal, stderr, stdout};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::doctor::{DoctorFinding, DoctorReport, DoctorScope, DoctorSeverity, DoctorSummary};
+use crate::repo::config_list;
 use crate::types::{ShellKind, WorkspaceListEntry};
 
 const CURRENT_HEADER: &str = "cur";
@@ -17,13 +19,81 @@ const WORKSPACE_HEADER: &str = "workspace";
 const STATUS_HEADER: &str = "status";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
-const SOFT_YELLOW: Ansi256Color = Ansi256Color(179);
-const SOFT_GREEN: Ansi256Color = Ansi256Color(108);
-const SOFT_BLUE: Ansi256Color = Ansi256Color(110);
-const SOFT_TEAL: Ansi256Color = Ansi256Color(73);
-const SOFT_RED: Ansi256Color = Ansi256Color(203);
-const SOFT_GRAY: Ansi256Color = Ansi256Color(245);
 const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
+static OUTPUT_THEME: OnceLock<OutputTheme> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+struct OutputTheme {
+    clap_header: Style,
+    clap_literal: Style,
+    clap_placeholder: Style,
+    clap_error: Style,
+    clap_valid: Style,
+    clap_invalid: Style,
+    error_prefix: Style,
+    warning_prefix: Style,
+    hint_prefix: Style,
+    doctor_heading: Style,
+    table_header: Style,
+    section_label: Style,
+    detail_label: Style,
+    warning_badge: Style,
+    error_badge: Style,
+    ok_badge: Style,
+    inferred_badge: Style,
+    missing_badge: Style,
+    stale_badge: Style,
+    jj_only_badge: Style,
+    current_workspace: Style,
+    meta: Style,
+    inferred_path: Style,
+    missing_path: Style,
+    stale_path: Style,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ParsedStyle {
+    fg: Option<Color>,
+    bg: Option<Color>,
+    effects: Effects,
+}
+
+enum ColorValue {
+    Default,
+    Color(Color),
+}
+
+impl ColorValue {
+    const fn into_option(self) -> Option<Color> {
+        match self {
+            Self::Default => None,
+            Self::Color(color) => Some(color),
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RawStyleValue {
+    Color(String),
+    Style(RawStyleTable),
+}
+
+#[derive(serde::Deserialize)]
+struct RawStyleTable {
+    fg: Option<String>,
+    bg: Option<String>,
+    bold: Option<bool>,
+    dim: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    reverse: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawStyleWrapper {
+    style: RawStyleValue,
+}
 
 /// Environment variable used by shell integration to pass a directive file.
 pub const DIRECTIVE_FILE_ENV_VAR: &str = "NAVI_DIRECTIVE_FILE";
@@ -32,33 +102,278 @@ pub const MANAGED_BLOCK_START: &str = "# >>> jj-navi shell init >>>";
 /// Marker for the end of the managed shell block.
 pub const MANAGED_BLOCK_END: &str = "# <<< jj-navi shell init <<<";
 
+impl OutputTheme {
+    fn load() -> Self {
+        Self {
+            clap_header: style_from_candidates(&["\"navi.header\"", "\"warning heading\""]),
+            clap_literal: style_from_candidates(&["\"navi.literal\"", "working_copies"]),
+            clap_placeholder: style_from_candidates(&["\"navi.placeholder\"", "working_copies"]),
+            clap_error: style_from_candidates(&["\"navi.error\"", "\"error heading\""]),
+            clap_valid: style_from_candidates(&["\"navi.valid\"", "working_copies"]),
+            clap_invalid: style_from_candidates(&["\"navi.invalid\"", "\"error heading\""]),
+            error_prefix: style_from_candidates(&["\"navi.error\"", "\"error heading\"", "error"]),
+            warning_prefix: style_from_candidates(&[
+                "\"navi.warning\"",
+                "\"warning heading\"",
+                "warning",
+            ]),
+            hint_prefix: style_from_candidates(&["\"navi.hint\"", "\"hint heading\"", "hint"]),
+            doctor_heading: style_from_candidates(&["\"navi.header\"", "\"warning heading\""]),
+            table_header: style_from_candidates(&["\"navi.section\"", "\"hint heading\""]),
+            section_label: style_from_candidates(&["\"navi.section\"", "\"hint heading\""]),
+            detail_label: style_from_candidates(&["\"navi.detail\"", "hint"]),
+            warning_badge: style_from_candidates(&["\"navi.warning\"", "warning"]),
+            error_badge: style_from_candidates(&["\"navi.error\"", "error"]),
+            ok_badge: style_from_candidates(&["\"navi.status.ok\"", "working_copies"]),
+            inferred_badge: style_from_candidates(&["\"navi.status.inferred\"", "bookmarks"]),
+            missing_badge: style_from_candidates(&[
+                "\"navi.status.missing\"",
+                "\"description placeholder\"",
+            ]),
+            stale_badge: style_from_candidates(&["\"navi.status.stale\"", "conflict"]),
+            jj_only_badge: style_from_candidates(&["\"navi.status.jj_only\"", "tag"]),
+            current_workspace: style_from_candidates(&[
+                "\"navi.current\"",
+                "working_copy",
+                "\"working_copy bookmarks\"",
+            ]),
+            meta: style_from_candidates(&["\"navi.meta\"", "rest", "separator"]),
+            inferred_path: style_from_candidates(&["\"navi.path.inferred\"", "bookmark"]),
+            missing_path: style_from_candidates(&[
+                "\"navi.path.missing\"",
+                "\"description placeholder\"",
+            ]),
+            stale_path: style_from_candidates(&["\"navi.path.stale\"", "conflict"]),
+        }
+    }
+}
+
+impl ParsedStyle {
+    fn into_style(self) -> Style {
+        Style::new()
+            .fg_color(self.fg)
+            .bg_color(self.bg)
+            .effects(self.effects)
+    }
+}
+
+fn theme() -> &'static OutputTheme {
+    OUTPUT_THEME.get_or_init(OutputTheme::load)
+}
+
+fn style_from_candidates(candidates: &[&str]) -> Style {
+    let styles = load_color_styles();
+    candidates
+        .iter()
+        .find_map(|name| styles.get(*name).copied())
+        .unwrap_or_default()
+        .into_style()
+}
+
+fn load_color_styles() -> &'static std::collections::BTreeMap<String, ParsedStyle> {
+    static COLOR_STYLES: OnceLock<std::collections::BTreeMap<String, ParsedStyle>> =
+        OnceLock::new();
+
+    COLOR_STYLES.get_or_init(|| {
+        parse_color_styles(&config_list(Path::new("."), "colors").unwrap_or_default())
+    })
+}
+
+fn parse_color_styles(config: &str) -> std::collections::BTreeMap<String, ParsedStyle> {
+    let mut styles = std::collections::BTreeMap::new();
+
+    for line in config.lines().filter(|line| !line.trim().is_empty()) {
+        let Some((name, value)) = line.split_once(" = ") else {
+            continue;
+        };
+        let Some(stripped_name) = name.strip_prefix("colors.") else {
+            continue;
+        };
+        let (label, field) = split_color_key(stripped_name);
+        let entry = styles.entry(label.to_owned()).or_default();
+        apply_config_field(entry, field, value);
+    }
+
+    styles
+}
+
+fn split_color_key(key: &str) -> (&str, Option<&str>) {
+    if !key.starts_with('"') {
+        return key
+            .rsplit_once('.')
+            .map_or((key, None), |(label, field)| (label, Some(field)));
+    }
+
+    let Some(rest) = key.strip_prefix('"') else {
+        return (key, None);
+    };
+    let Some(quote_end) = rest.find('"') else {
+        return (key, None);
+    };
+    let label_end = quote_end + 2;
+    let label = &key[..label_end];
+    let remainder = &key[label_end..];
+
+    if let Some(field) = remainder.strip_prefix('.') {
+        (label, Some(field))
+    } else {
+        (label, None)
+    }
+}
+
+fn apply_config_field(style: &mut ParsedStyle, field: Option<&str>, value: &str) {
+    match field {
+        None => {
+            if let Some(parsed) = parse_style(value) {
+                *style = parsed;
+            }
+        }
+        Some("fg") => {
+            style.fg = parse_toml_string(value)
+                .and_then(|color| parse_color_value(&color))
+                .and_then(ColorValue::into_option);
+        }
+        Some("bg") => {
+            style.bg = parse_toml_string(value)
+                .and_then(|color| parse_color_value(&color))
+                .and_then(ColorValue::into_option);
+        }
+        Some("bold") => set_effect(style, Effects::BOLD, parse_toml_bool(value)),
+        Some("dim") => set_effect(style, Effects::DIMMED, parse_toml_bool(value)),
+        Some("italic") => set_effect(style, Effects::ITALIC, parse_toml_bool(value)),
+        Some("underline") => set_effect(style, Effects::UNDERLINE, parse_toml_bool(value)),
+        Some("reverse") => set_effect(style, Effects::INVERT, parse_toml_bool(value)),
+        Some(_) => {}
+    }
+}
+
+fn set_effect(style: &mut ParsedStyle, effect: Effects, enabled: Option<bool>) {
+    if let Some(enabled) = enabled {
+        style.effects = style.effects.set(effect, enabled);
+    }
+}
+
+fn parse_toml_string(raw: &str) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct StringWrapper {
+        value: String,
+    }
+
+    toml::from_str::<StringWrapper>(&format!("value = {raw}"))
+        .ok()
+        .map(|value| value.value)
+}
+
+fn parse_toml_bool(raw: &str) -> Option<bool> {
+    match raw.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_style(raw: &str) -> Option<ParsedStyle> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let parsed = toml::from_str::<RawStyleWrapper>(&format!("style = {value}"))
+        .or_else(|_| toml::from_str::<RawStyleWrapper>(&format!("style = {value:?}")))
+        .ok()?;
+
+    match parsed.style {
+        RawStyleValue::Color(color) => Some(ParsedStyle {
+            fg: parse_color_value(&color).and_then(ColorValue::into_option),
+            ..ParsedStyle::default()
+        }),
+        RawStyleValue::Style(style) => Some(parse_style_table(&style)),
+    }
+}
+
+fn parse_style_table(style: &RawStyleTable) -> ParsedStyle {
+    let mut effects = Effects::new();
+    if style.bold.unwrap_or(false) {
+        effects |= Effects::BOLD;
+    }
+    if style.dim.unwrap_or(false) {
+        effects |= Effects::DIMMED;
+    }
+    if style.italic.unwrap_or(false) {
+        effects |= Effects::ITALIC;
+    }
+    if style.underline.unwrap_or(false) {
+        effects |= Effects::UNDERLINE;
+    }
+    if style.reverse.unwrap_or(false) {
+        effects |= Effects::INVERT;
+    }
+
+    ParsedStyle {
+        fg: style.fg.as_deref().and_then(parse_color),
+        bg: style.bg.as_deref().and_then(parse_color),
+        effects,
+    }
+}
+
+fn parse_color_value(value: &str) -> Option<ColorValue> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized == "default" {
+        return Some(ColorValue::Default);
+    }
+
+    parse_color(&normalized).map(ColorValue::Color)
+}
+
+fn parse_color(value: &str) -> Option<Color> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let color = match normalized.as_str() {
+        "black" => Color::Ansi(AnsiColor::Black),
+        "red" => Color::Ansi(AnsiColor::Red),
+        "green" => Color::Ansi(AnsiColor::Green),
+        "yellow" => Color::Ansi(AnsiColor::Yellow),
+        "blue" => Color::Ansi(AnsiColor::Blue),
+        "magenta" => Color::Ansi(AnsiColor::Magenta),
+        "cyan" => Color::Ansi(AnsiColor::Cyan),
+        "white" => Color::Ansi(AnsiColor::White),
+        "bright black" => Color::Ansi(AnsiColor::BrightBlack),
+        "bright red" => Color::Ansi(AnsiColor::BrightRed),
+        "bright green" => Color::Ansi(AnsiColor::BrightGreen),
+        "bright yellow" => Color::Ansi(AnsiColor::BrightYellow),
+        "bright blue" => Color::Ansi(AnsiColor::BrightBlue),
+        "bright magenta" => Color::Ansi(AnsiColor::BrightMagenta),
+        "bright cyan" => Color::Ansi(AnsiColor::BrightCyan),
+        "bright white" => Color::Ansi(AnsiColor::BrightWhite),
+        _ if normalized.starts_with("ansi-color-") => {
+            let code = normalized
+                .trim_start_matches("ansi-color-")
+                .parse::<u8>()
+                .ok()?;
+            Color::Ansi256(Ansi256Color(code))
+        }
+        _ if normalized.starts_with('#') && normalized.len() == 7 => {
+            let red = u8::from_str_radix(&normalized[1..3], 16).ok()?;
+            let green = u8::from_str_radix(&normalized[3..5], 16).ok()?;
+            let blue = u8::from_str_radix(&normalized[5..7], 16).ok()?;
+            Color::Rgb(RgbColor(red, green, blue))
+        }
+        _ => return None,
+    };
+
+    Some(color)
+}
+
 /// Clap styles for restrained help and parser output.
 #[must_use]
 pub fn clap_styles() -> Styles {
     Styles::styled()
-        .header(
-            Style::new()
-                .fg_color(Some(SOFT_YELLOW.into()))
-                .effects(Effects::BOLD),
-        )
-        .usage(
-            Style::new()
-                .fg_color(Some(SOFT_YELLOW.into()))
-                .effects(Effects::BOLD),
-        )
-        .literal(Style::new().fg_color(Some(SOFT_GREEN.into())))
-        .placeholder(Style::new().fg_color(Some(SOFT_GREEN.into())))
-        .error(
-            Style::new()
-                .fg_color(Some(SOFT_YELLOW.into()))
-                .effects(Effects::BOLD),
-        )
-        .valid(Style::new().fg_color(Some(SOFT_GREEN.into())))
-        .invalid(
-            Style::new()
-                .fg_color(Some(SOFT_YELLOW.into()))
-                .effects(Effects::BOLD),
-        )
+        .header(theme().clap_header)
+        .usage(theme().clap_header)
+        .literal(theme().clap_literal)
+        .placeholder(theme().clap_placeholder)
+        .error(theme().clap_error)
+        .valid(theme().clap_valid)
+        .invalid(theme().clap_invalid)
 }
 
 /// Render a human-facing error message with restrained semantic colors.
@@ -106,12 +421,13 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
     let mut output = String::new();
     writeln!(
         output,
-        "{}  {}  {}  {}  {}  message",
+        "{}  {}  {}  {}  {}  {}",
         style_table_header(&format!("{CURRENT_HEADER:<3}")),
         style_table_header(&format!("{WORKSPACE_HEADER:<workspace_width$}")),
         style_table_header(&format!("{STATUS_HEADER:<status_width$}")),
         style_table_header(&format!("{PATH_HEADER:<path_width$}")),
         style_table_header(&format!("{COMMIT_HEADER:<commit_width$}")),
+        style_table_header("message"),
     )
     .expect("write table header");
 
@@ -298,15 +614,19 @@ pub fn escape_shell_single_quotes(value: &str) -> String {
 
 fn colorize_error_line(line: &str) -> String {
     if let Some(rest) = line.strip_prefix("error:") {
-        return format!("{}{}", styled_prefix("error:", SOFT_YELLOW), rest);
+        return format!("{}{}", styled_prefix("error:", theme().error_prefix), rest);
     }
 
     if let Some(rest) = line.strip_prefix("warning:") {
-        return format!("{}{}", styled_prefix("warning:", SOFT_YELLOW), rest);
+        return format!(
+            "{}{}",
+            styled_prefix("warning:", theme().warning_prefix),
+            rest
+        );
     }
 
     if let Some(rest) = line.strip_prefix("hint:") {
-        return format!("{}{}", styled_prefix("hint:", SOFT_GREEN), rest);
+        return format!("{}{}", styled_prefix("hint:", theme().hint_prefix), rest);
     }
 
     line.to_owned()
@@ -413,64 +733,50 @@ fn pluralize(count: usize, noun: &str) -> String {
     }
 }
 
-fn styled_prefix(prefix: &str, color: Ansi256Color) -> String {
-    if !stderr_color_enabled() {
-        return prefix.to_owned();
-    }
-
-    format!(
-        "\u{1b}[38;5;{}m{}\u{1b}[0m",
-        ansi_256_color_code(color),
-        prefix
-    )
+fn styled_prefix(prefix: &str, style: Style) -> String {
+    apply_style(prefix, style, stderr_color_enabled())
 }
 
 fn style_doctor_heading(label: &str) -> String {
-    styled_stdout_text(label, SOFT_YELLOW, true)
+    styled_stdout_text(label, theme().doctor_heading)
 }
 
 fn style_table_header(label: &str) -> String {
-    styled_stdout_text(label, SOFT_YELLOW, true)
+    styled_stdout_text(label, theme().table_header)
 }
 
 fn style_section_label(label: &str) -> String {
-    styled_stdout_text(label, SOFT_GREEN, true)
+    styled_stdout_text(label, theme().section_label)
 }
 
 fn style_detail_label(label: &str) -> String {
-    styled_stdout_text(&format!("{label}:"), SOFT_GREEN, false)
+    styled_stdout_text(&format!("{label}:"), theme().detail_label)
 }
 
 fn style_status_badge(label: &str, severity: DoctorSeverity) -> String {
     let plain = format!("[ {label} ]");
-    let color = match severity {
-        DoctorSeverity::Error | DoctorSeverity::Warning => SOFT_YELLOW,
-        DoctorSeverity::Info => SOFT_GREEN,
+    let style = match severity {
+        DoctorSeverity::Error => theme().error_badge,
+        DoctorSeverity::Warning => theme().warning_badge,
+        DoctorSeverity::Info => theme().ok_badge,
     };
-    styled_stdout_text(&plain, color, true)
+    styled_stdout_text(&plain, style)
 }
 
-fn style_list_badge(label: &str, color: Ansi256Color) -> String {
-    styled_stdout_text(&format!("[{label}]"), color, true)
+fn style_list_badge(label: &str, style: Style) -> String {
+    styled_stdout_text(&format!("[ {label} ]"), style)
 }
 
 fn style_workspace_name(name: &str, is_current: bool) -> String {
     if is_current {
-        styled_stdout_text(name, SOFT_GREEN, true)
+        styled_stdout_text(name, theme().current_workspace)
     } else {
         name.to_owned()
     }
 }
 
 fn style_meta(text: &str) -> String {
-    if !stdout_color_enabled() {
-        return text.to_owned();
-    }
-
-    let style = Style::new()
-        .fg_color(Some(SOFT_GRAY.into()))
-        .effects(Effects::DIMMED);
-    format!("{}{}{}", style.render(), text, style.render_reset())
+    styled_stdout_text(text, theme().meta)
 }
 
 fn scope_icon(summary: &ScopeSummary) -> &'static str {
@@ -485,18 +791,18 @@ fn finding_icon(severity: DoctorSeverity) -> &'static str {
     }
 }
 
-fn styled_stdout_text(text: &str, color: Ansi256Color, bold: bool) -> String {
-    if !stdout_color_enabled() {
+fn styled_stdout_text(text: &str, style: Style) -> String {
+    apply_style(text, style, stdout_color_enabled())
+}
+
+fn apply_style(text: &str, style: Style, enabled: bool) -> String {
+    if !enabled {
         return text.to_owned();
     }
 
-    let style = if bold {
-        Style::new()
-            .fg_color(Some(color.into()))
-            .effects(Effects::BOLD)
-    } else {
-        Style::new().fg_color(Some(color.into()))
-    };
+    if style == Style::new() {
+        return text.to_owned();
+    }
 
     format!("{}{}{}", style.render(), text, style.render_reset())
 }
@@ -532,7 +838,7 @@ fn plain_workspace_status(entry: &WorkspaceListEntry) -> String {
     entry
         .statuses
         .iter()
-        .map(|status| format!("[{}]", status.label()))
+        .map(|status| format!("[ {} ]", status.label()))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -541,9 +847,13 @@ fn render_workspace_path(entry: &WorkspaceListEntry) -> RenderedCell {
     let plain = entry.path.display().to_string();
     let rendered = match entry.path_state {
         crate::types::WorkspacePathState::Confirmed => plain.clone(),
-        crate::types::WorkspacePathState::Inferred => styled_stdout_text(&plain, SOFT_BLUE, false),
-        crate::types::WorkspacePathState::Missing => styled_stdout_text(&plain, SOFT_YELLOW, false),
-        crate::types::WorkspacePathState::Stale => styled_stdout_text(&plain, SOFT_RED, false),
+        crate::types::WorkspacePathState::Inferred => {
+            styled_stdout_text(&plain, theme().inferred_path)
+        }
+        crate::types::WorkspacePathState::Missing => {
+            styled_stdout_text(&plain, theme().missing_path)
+        }
+        crate::types::WorkspacePathState::Stale => styled_stdout_text(&plain, theme().stale_path),
     };
     let visible_len = plain.len();
 
@@ -572,11 +882,15 @@ fn render_commit_id(commit_id: &str) -> RenderedCell {
 fn render_status_badge(status: crate::types::WorkspaceListStatus) -> String {
     let label = status.label();
     let colored = match status {
-        crate::types::WorkspaceListStatus::Ok => style_list_badge(label, SOFT_GREEN),
-        crate::types::WorkspaceListStatus::Inferred => style_list_badge(label, SOFT_BLUE),
-        crate::types::WorkspaceListStatus::Missing => style_list_badge(label, SOFT_YELLOW),
-        crate::types::WorkspaceListStatus::Stale => style_list_badge(label, SOFT_RED),
-        crate::types::WorkspaceListStatus::JjOnly => style_list_badge(label, SOFT_TEAL),
+        crate::types::WorkspaceListStatus::Ok => style_list_badge(label, theme().ok_badge),
+        crate::types::WorkspaceListStatus::Inferred => {
+            style_list_badge(label, theme().inferred_badge)
+        }
+        crate::types::WorkspaceListStatus::Missing => {
+            style_list_badge(label, theme().missing_badge)
+        }
+        crate::types::WorkspaceListStatus::Stale => style_list_badge(label, theme().stale_badge),
+        crate::types::WorkspaceListStatus::JjOnly => style_list_badge(label, theme().jj_only_badge),
     };
 
     if status == crate::types::WorkspaceListStatus::Inferred && hyperlink_enabled() {
@@ -601,10 +915,6 @@ fn hyperlink(label: &str, url: &str) -> String {
 fn pad_visible(value: &str, visible_len: usize, width: usize) -> String {
     let padding = width.saturating_sub(visible_len);
     format!("{value}{}", " ".repeat(padding))
-}
-
-const fn ansi_256_color_code(color: Ansi256Color) -> u8 {
-    color.0
 }
 
 struct RenderedWorkspaceEntry<'a> {
@@ -655,12 +965,15 @@ impl ScopeSummary {
 mod tests {
     use std::path::PathBuf;
 
+    use anstyle::{AnsiColor, Effects, Style};
+
     use crate::types::{
         ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
     };
 
     use super::{
-        DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
+        DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, ParsedStyle,
+        apply_config_field, apply_style, escape_shell_single_quotes, parse_style,
         render_error_message, render_shell_init, render_shell_install_block,
         render_workspace_table,
     };
@@ -697,8 +1010,8 @@ mod tests {
         assert!(rendered.contains("status"));
         assert!(rendered.contains("commit"));
         assert!(rendered.contains("Feature auth work"));
-        assert!(rendered.contains("[inferred]"));
-        assert!(!rendered.contains("../repo.feature-auth [inferred]"));
+        assert!(rendered.contains("[ inferred ]"));
+        assert!(!rendered.contains("../repo.feature-auth [ inferred ]"));
     }
 
     #[test]
@@ -733,5 +1046,64 @@ mod tests {
 
         assert!(rendered.contains("error:"));
         assert!(rendered.contains("hint:"));
+    }
+
+    #[test]
+    fn effect_only_styles_do_not_emit_explicit_colors() {
+        let rendered = apply_style(
+            "label",
+            Style::new()
+                .fg_color(Some(AnsiColor::Green.into()))
+                .effects(Effects::BOLD),
+            true,
+        );
+
+        assert!(rendered.contains("label"));
+        assert!(rendered.contains("\u{1b}["));
+        assert!(!rendered.contains("38;5;"));
+    }
+
+    #[test]
+    fn parses_named_color_style() {
+        assert_eq!(
+            parse_style("magenta"),
+            Some(ParsedStyle {
+                fg: Some(AnsiColor::Magenta.into()),
+                bg: None,
+                effects: Effects::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_table_style() {
+        assert_eq!(
+            parse_style("{ fg = \"default\", bold = true, underline = true }"),
+            Some(ParsedStyle {
+                fg: None,
+                bg: None,
+                effects: Effects::BOLD | Effects::UNDERLINE,
+            })
+        );
+    }
+
+    #[test]
+    fn explicit_false_clears_previously_set_effect() {
+        let mut style = ParsedStyle {
+            fg: None,
+            bg: None,
+            effects: Effects::BOLD | Effects::UNDERLINE,
+        };
+
+        apply_config_field(&mut style, Some("bold"), "false");
+
+        assert_eq!(
+            style,
+            ParsedStyle {
+                fg: None,
+                bg: None,
+                effects: Effects::UNDERLINE,
+            }
+        );
     }
 }

@@ -17,6 +17,27 @@ pub(crate) struct JjClient<'a> {
     workspace_root: &'a Path,
 }
 
+pub(crate) fn config_list(path: &Path, name: &str) -> Option<String> {
+    let output = Command::new("jj")
+        .args([
+            OsString::from("--color=never"),
+            OsString::from("--no-pager"),
+            OsString::from("config"),
+            OsString::from("list"),
+            OsString::from("--include-defaults"),
+            OsString::from(name),
+        ])
+        .current_dir(path)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 const MINIMUM_JJ_VERSION: JjVersion = JjVersion {
     major: 0,
     minor: 39,
