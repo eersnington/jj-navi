@@ -184,8 +184,6 @@ pub struct WorkspaceListEntry {
     pub statuses: Vec<WorkspaceListStatus>,
     /// Display path shown in the table.
     pub path: PathBuf,
-    /// Whether the rendered path comes from `navi` fallback logic.
-    pub path_is_inferred: bool,
     /// How trustworthy the rendered path is.
     pub path_state: WorkspacePathState,
     /// Short commit identifier.

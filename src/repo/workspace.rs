@@ -77,6 +77,20 @@ enum WorkspaceMetadataStatus {
     PresentWithPath,
 }
 
+#[derive(Clone, Copy)]
+struct WorkspaceTemplateInputs<'a> {
+    repo_name: &'a str,
+    template: &'a WorkspaceTemplate,
+    allow_switchable_path: bool,
+}
+
+#[derive(Clone, Copy)]
+struct WorkspacePathResolutionOptions<'a> {
+    current_workspace: Option<&'a WorkspaceName>,
+    metadata: Option<&'a WorkspaceMetadataStore>,
+    template: WorkspaceTemplateInputs<'a>,
+}
+
 impl NaviWorkspace {
     /// Open the nearest jj workspace from `path`.
     ///
@@ -190,11 +204,13 @@ impl NaviWorkspace {
     /// Compute the absolute workspace root for `workspace`.
     #[must_use]
     pub fn planned_workspace_root(&self, workspace: &WorkspaceName) -> PathBuf {
-        if workspace == &self.current_workspace {
-            return self.workspace_root.clone();
-        }
-
-        self.workspace_root_from_template(&self.config.workspace_template, workspace)
+        planned_workspace_root(
+            &self.workspace_root,
+            Some(&self.current_workspace),
+            &self.repo_name,
+            &self.config.workspace_template,
+            workspace,
+        )
     }
 
     #[must_use]
@@ -204,7 +220,7 @@ impl NaviWorkspace {
 
     #[must_use]
     pub fn display_path_for_list(&self, target_root: &Path) -> PathBuf {
-        diff_paths(target_root, &self.workspace_root).unwrap_or_else(|| target_root.to_path_buf())
+        display_path_for_list(&self.workspace_root, target_root)
     }
 
     /// Resolve the best available workspace path for `switch`.
@@ -322,7 +338,6 @@ impl NaviWorkspace {
             name: entry.name,
             statuses,
             path,
-            path_is_inferred: resolved.source.is_inferred(),
             path_state: resolved.state,
             commit_id: entry.commit_id,
             message: entry.message,
@@ -347,103 +362,22 @@ impl NaviWorkspace {
         workspace: &WorkspaceName,
         metadata: &WorkspaceMetadataStore,
     ) -> ResolvedWorkspacePath {
-        if workspace == &self.current_workspace {
-            return ResolvedWorkspacePath {
-                path: self.workspace_root.clone(),
-                state: WorkspacePathState::Confirmed,
-                source: WorkspacePathSource::CurrentWorkspace,
-            };
-        }
-
         let jj = JjClient::new(&self.workspace_root);
-        let mut fallback = None;
-
-        if let Ok(path) = jj.workspace_root(workspace) {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::JjRecorded);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            fallback = Some(candidate);
-        }
-
-        if let Some(path) = repo_primary_workspace_root(&self.repo_storage_path, workspace) {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::RepoPrimary);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            if fallback.is_none() {
-                fallback = Some(candidate);
-            }
-        }
-
-        if let Some(path) = metadata.workspace_path(workspace) {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::NaviMetadata);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            if fallback.is_none() {
-                fallback = Some(candidate);
-            }
-        }
-
-        let candidate = self.resolve_candidate(
-            self.planned_workspace_root(workspace),
+        resolve_workspace_path_from_sources(
+            &self.workspace_root,
+            &self.repo_storage_path,
             workspace,
-            WorkspacePathSource::Template,
-        );
-        if candidate.is_switchable() {
-            return candidate;
-        }
-        fallback.unwrap_or(candidate)
-    }
-
-    fn resolve_candidate(
-        &self,
-        path: PathBuf,
-        workspace: &WorkspaceName,
-        source: WorkspacePathSource,
-    ) -> ResolvedWorkspacePath {
-        let state = match self.classify_candidate_path(&path, workspace) {
-            CandidateState::Valid if source.is_inferred() => WorkspacePathState::Inferred,
-            CandidateState::Valid => WorkspacePathState::Confirmed,
-            CandidateState::Missing => WorkspacePathState::Missing,
-            CandidateState::Stale => WorkspacePathState::Stale,
-        };
-
-        ResolvedWorkspacePath {
-            path,
-            state,
-            source,
-        }
-    }
-
-    fn classify_candidate_path(&self, path: &Path, workspace: &WorkspaceName) -> CandidateState {
-        if !path.is_dir() {
-            return CandidateState::Missing;
-        }
-
-        if !path.join(".jj").is_dir() {
-            return CandidateState::Stale;
-        }
-
-        let Ok(repo_storage_path) = resolve_repo_storage_path(path) else {
-            return CandidateState::Stale;
-        };
-        let Ok(repo_storage_path) = fs::canonicalize(repo_storage_path) else {
-            return CandidateState::Stale;
-        };
-        if repo_storage_path != self.repo_storage_path {
-            return CandidateState::Stale;
-        }
-
-        let jj = JjClient::new(path);
-        match jj.current_workspace_name() {
-            Ok(current_workspace) if &current_workspace == workspace => CandidateState::Valid,
-            _ => CandidateState::Stale,
-        }
+            &jj,
+            WorkspacePathResolutionOptions {
+                current_workspace: Some(&self.current_workspace),
+                metadata: Some(metadata),
+                template: WorkspaceTemplateInputs {
+                    repo_name: &self.repo_name,
+                    template: &self.config.workspace_template,
+                    allow_switchable_path: true,
+                },
+            },
+        )
     }
 
     fn resolve_workspace_forget_target(&self, workspace: &WorkspaceName) -> Result<WorkspaceName> {
@@ -463,20 +397,6 @@ impl NaviWorkspace {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
         }
     }
-
-    fn workspace_root_from_template(
-        &self,
-        template: &WorkspaceTemplate,
-        workspace: &WorkspaceName,
-    ) -> PathBuf {
-        let path = template.render(&self.repo_name, workspace);
-
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
-    }
 }
 
 struct DoctorWorkspace {
@@ -490,24 +410,8 @@ struct DoctorWorkspace {
 }
 
 impl DoctorWorkspace {
-    fn planned_workspace_root(&self, workspace: &WorkspaceName) -> PathBuf {
-        if self.current_workspace.as_ref() == Some(workspace) {
-            return self.workspace_root.clone();
-        }
-
-        let path = self
-            .config
-            .workspace_template
-            .render(&self.repo_name, workspace);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
-    }
-
     fn display_path_for_list(&self, target_root: &Path) -> PathBuf {
-        diff_paths(target_root, &self.workspace_root).unwrap_or_else(|| target_root.to_path_buf())
+        display_path_for_list(&self.workspace_root, target_root)
     }
 
     fn workspace_findings(
@@ -659,107 +563,21 @@ impl DoctorWorkspace {
         metadata: &WorkspaceMetadataStore,
         jj: &JjClient<'_>,
     ) -> ResolvedWorkspacePath {
-        if self.current_workspace.as_ref() == Some(workspace) {
-            return ResolvedWorkspacePath {
-                path: self.workspace_root.clone(),
-                state: WorkspacePathState::Confirmed,
-                source: WorkspacePathSource::CurrentWorkspace,
-            };
-        }
-
-        let mut fallback = None;
-
-        if let Ok(path) = jj.workspace_root(workspace) {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::JjRecorded);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            fallback = Some(candidate);
-        }
-
-        if let Some(path) = repo_primary_workspace_root(&self.repo_storage_path, workspace) {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::RepoPrimary);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            if fallback.is_none() {
-                fallback = Some(candidate);
-            }
-        }
-
-        if self.metadata_is_valid
-            && let Some(path) = metadata.workspace_path(workspace)
-        {
-            let candidate =
-                self.resolve_candidate(path, workspace, WorkspacePathSource::NaviMetadata);
-            if candidate.is_switchable() {
-                return candidate;
-            }
-            if fallback.is_none() {
-                fallback = Some(candidate);
-            }
-        }
-
-        let candidate = self.resolve_candidate(
-            self.planned_workspace_root(workspace),
+        resolve_workspace_path_from_sources(
+            &self.workspace_root,
+            &self.repo_storage_path,
             workspace,
-            WorkspacePathSource::Template,
-        );
-        if !self.config_is_valid {
-            return fallback.unwrap_or(candidate);
-        }
-        if candidate.is_switchable() {
-            return candidate;
-        }
-        fallback.unwrap_or(candidate)
-    }
-
-    fn resolve_candidate(
-        &self,
-        path: PathBuf,
-        workspace: &WorkspaceName,
-        source: WorkspacePathSource,
-    ) -> ResolvedWorkspacePath {
-        let state = match self.classify_candidate_path(&path, workspace) {
-            CandidateState::Valid if source.is_inferred() => WorkspacePathState::Inferred,
-            CandidateState::Valid => WorkspacePathState::Confirmed,
-            CandidateState::Missing => WorkspacePathState::Missing,
-            CandidateState::Stale => WorkspacePathState::Stale,
-        };
-
-        ResolvedWorkspacePath {
-            path,
-            state,
-            source,
-        }
-    }
-
-    fn classify_candidate_path(&self, path: &Path, workspace: &WorkspaceName) -> CandidateState {
-        if !path.is_dir() {
-            return CandidateState::Missing;
-        }
-
-        if !path.join(".jj").is_dir() {
-            return CandidateState::Stale;
-        }
-
-        let Ok(repo_storage_path) = resolve_repo_storage_path(path) else {
-            return CandidateState::Stale;
-        };
-        let Ok(repo_storage_path) = fs::canonicalize(repo_storage_path) else {
-            return CandidateState::Stale;
-        };
-        if repo_storage_path != self.repo_storage_path {
-            return CandidateState::Stale;
-        }
-
-        let jj = JjClient::new(path);
-        match jj.current_workspace_name() {
-            Ok(current_workspace) if &current_workspace == workspace => CandidateState::Valid,
-            _ => CandidateState::Stale,
-        }
+            jj,
+            WorkspacePathResolutionOptions {
+                current_workspace: self.current_workspace.as_ref(),
+                metadata: self.metadata_is_valid.then_some(metadata),
+                template: WorkspaceTemplateInputs {
+                    repo_name: &self.repo_name,
+                    template: &self.config.workspace_template,
+                    allow_switchable_path: self.config_is_valid,
+                },
+            },
+        )
     }
 }
 
@@ -888,6 +706,160 @@ fn should_report_missing_navi_metadata(workspace: &WorkspaceName) -> bool {
     // behaves correctly with JJ as the source of truth, so doctor treats
     // missing metadata there as expected rather than drift.
     workspace.as_str() != DEFAULT_WORKSPACE_NAME
+}
+
+fn planned_workspace_root(
+    workspace_root: &Path,
+    current_workspace: Option<&WorkspaceName>,
+    repo_name: &str,
+    template: &WorkspaceTemplate,
+    workspace: &WorkspaceName,
+) -> PathBuf {
+    if current_workspace == Some(workspace) {
+        return workspace_root.to_path_buf();
+    }
+
+    let path = template.render(repo_name, workspace);
+    if path.is_absolute() {
+        path
+    } else {
+        workspace_root.join(path)
+    }
+}
+
+fn display_path_for_list(workspace_root: &Path, target_root: &Path) -> PathBuf {
+    diff_paths(target_root, workspace_root).unwrap_or_else(|| target_root.to_path_buf())
+}
+
+fn resolve_workspace_path_from_sources(
+    workspace_root: &Path,
+    repo_storage_path: &Path,
+    workspace: &WorkspaceName,
+    jj: &JjClient<'_>,
+    options: WorkspacePathResolutionOptions<'_>,
+) -> ResolvedWorkspacePath {
+    if options.current_workspace == Some(workspace) {
+        return ResolvedWorkspacePath {
+            path: workspace_root.to_path_buf(),
+            state: WorkspacePathState::Confirmed,
+            source: WorkspacePathSource::CurrentWorkspace,
+        };
+    }
+
+    let mut fallback = None;
+
+    if let Ok(path) = jj.workspace_root(workspace) {
+        let candidate = resolve_candidate_path(
+            repo_storage_path,
+            path,
+            workspace,
+            WorkspacePathSource::JjRecorded,
+        );
+        if candidate.is_switchable() {
+            return candidate;
+        }
+        fallback = Some(candidate);
+    }
+
+    if let Some(path) = repo_primary_workspace_root(repo_storage_path, workspace) {
+        let candidate = resolve_candidate_path(
+            repo_storage_path,
+            path,
+            workspace,
+            WorkspacePathSource::RepoPrimary,
+        );
+        if candidate.is_switchable() {
+            return candidate;
+        }
+        if fallback.is_none() {
+            fallback = Some(candidate);
+        }
+    }
+
+    if let Some(metadata) = options.metadata
+        && let Some(path) = metadata.workspace_path(workspace)
+    {
+        let candidate = resolve_candidate_path(
+            repo_storage_path,
+            path,
+            workspace,
+            WorkspacePathSource::NaviMetadata,
+        );
+        if candidate.is_switchable() {
+            return candidate;
+        }
+        if fallback.is_none() {
+            fallback = Some(candidate);
+        }
+    }
+
+    let template = options.template;
+    let candidate = resolve_candidate_path(
+        repo_storage_path,
+        planned_workspace_root(
+            workspace_root,
+            options.current_workspace,
+            template.repo_name,
+            template.template,
+            workspace,
+        ),
+        workspace,
+        WorkspacePathSource::Template,
+    );
+    if template.allow_switchable_path && candidate.is_switchable() {
+        return candidate;
+    }
+    fallback.unwrap_or(candidate)
+}
+
+fn resolve_candidate_path(
+    repo_storage_path: &Path,
+    path: PathBuf,
+    workspace: &WorkspaceName,
+    source: WorkspacePathSource,
+) -> ResolvedWorkspacePath {
+    let state = match classify_candidate_path(repo_storage_path, &path, workspace) {
+        CandidateState::Valid if source.is_inferred() => WorkspacePathState::Inferred,
+        CandidateState::Valid => WorkspacePathState::Confirmed,
+        CandidateState::Missing => WorkspacePathState::Missing,
+        CandidateState::Stale => WorkspacePathState::Stale,
+    };
+
+    ResolvedWorkspacePath {
+        path,
+        state,
+        source,
+    }
+}
+
+fn classify_candidate_path(
+    repo_storage_path: &Path,
+    path: &Path,
+    workspace: &WorkspaceName,
+) -> CandidateState {
+    if !path.is_dir() {
+        return CandidateState::Missing;
+    }
+
+    if !path.join(".jj").is_dir() {
+        return CandidateState::Stale;
+    }
+
+    let Ok(candidate_repo_storage_path) = resolve_repo_storage_path(path) else {
+        return CandidateState::Stale;
+    };
+    let Ok(candidate_repo_storage_path) = fs::canonicalize(candidate_repo_storage_path) else {
+        return CandidateState::Stale;
+    };
+    if candidate_repo_storage_path != repo_storage_path {
+        return CandidateState::Stale;
+    }
+
+    let jj = JjClient::new(path);
+    match jj.current_workspace_name() {
+        Ok(current_workspace) if &current_workspace == workspace => CandidateState::Valid,
+        _ => CandidateState::Stale,
+    }
 }
 
 fn metadata_status(
