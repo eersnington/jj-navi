@@ -36,8 +36,8 @@ fn renders_table_with_header() {
     assert!(rendered.starts_with("cur"));
     assert!(rendered.contains("status"));
     assert!(rendered.contains("../repo.feature-auth"));
-    assert!(rendered.contains("[inferred]"));
-    assert!(!rendered.contains("../repo.feature-auth [inferred]"));
+    assert!(rendered.contains("[ inferred ]"));
+    assert!(!rendered.contains("../repo.feature-auth [ inferred ]"));
     assert!(rendered.contains("abc123"));
     assert!(rendered.contains("Feature auth work"));
 }
@@ -57,9 +57,9 @@ fn renders_missing_status_without_inferred_status_for_non_inferred_path() {
 
     let rendered = render_workspace_table(&entries);
 
-    assert!(rendered.contains("[missing]"));
+    assert!(rendered.contains("[ missing ]"));
     assert!(rendered.contains("../repo.feature-auth"));
-    assert!(!rendered.contains("[inferred] [missing]"));
+    assert!(!rendered.contains("[ inferred ] [ missing ]"));
 }
 
 #[test]
@@ -77,8 +77,8 @@ fn renders_combined_workspace_statuses() {
 
     let rendered = render_workspace_table(&entries);
 
-    assert!(rendered.contains("[inferred] [missing]"));
-    assert!(!rendered.contains("../repo.feature-auth [missing]"));
+    assert!(rendered.contains("[ inferred ] [ missing ]"));
+    assert!(!rendered.contains("../repo.feature-auth [ missing ]"));
 }
 
 #[test]
