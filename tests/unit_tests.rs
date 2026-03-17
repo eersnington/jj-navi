@@ -8,6 +8,7 @@ use jj_navi::output::{
 };
 use jj_navi::types::{
     ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
+    WorkspaceTemplate,
 };
 use std::path::PathBuf;
 
@@ -23,13 +24,43 @@ fn rejects_invalid_workspace_names() {
 }
 
 #[test]
+fn rejects_invalid_workspace_templates() {
+    assert!(WorkspaceTemplate::new("../{repo").is_err());
+    assert!(WorkspaceTemplate::new("../{repo}.{branch}").is_err());
+    assert!(WorkspaceTemplate::new("../repo}").is_err());
+}
+
+#[test]
+fn renders_workspace_template_placeholders() {
+    let template = WorkspaceTemplate::new("../{repo}.{workspace}").expect("valid template");
+    let workspace = WorkspaceName::new("feature-auth").expect("valid workspace");
+
+    let rendered = template.render("jj-navi", &workspace);
+
+    assert_eq!(rendered, PathBuf::from("../jj-navi.feature-auth"));
+}
+
+#[test]
+fn renders_repeated_workspace_template_placeholders() {
+    let template =
+        WorkspaceTemplate::new("../{repo}.{workspace}.{workspace}").expect("valid template");
+    let workspace = WorkspaceName::new("feature-auth").expect("valid workspace");
+
+    let rendered = template.render("jj-navi", &workspace);
+
+    assert_eq!(
+        rendered,
+        PathBuf::from("../jj-navi.feature-auth.feature-auth")
+    );
+}
+
+#[test]
 fn renders_table_with_header() {
     let entries = vec![WorkspaceListEntry {
         is_current: false,
         name: WorkspaceName::new("feature-auth").expect("valid workspace"),
         statuses: vec![WorkspaceListStatus::Inferred],
         path: PathBuf::from("../repo.feature-auth"),
-        path_is_inferred: true,
         path_state: WorkspacePathState::Inferred,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
@@ -54,7 +85,6 @@ fn renders_workspace_table_for_current_workspace() {
             name: WorkspaceName::new("default").expect("valid workspace"),
             statuses: vec![WorkspaceListStatus::Ok],
             path: PathBuf::from("."),
-            path_is_inferred: false,
             path_state: WorkspacePathState::Confirmed,
             commit_id: String::from("abc123"),
             message: String::from("Current work"),
@@ -64,7 +94,6 @@ fn renders_workspace_table_for_current_workspace() {
             name: WorkspaceName::new("feature-auth").expect("valid workspace"),
             statuses: vec![WorkspaceListStatus::Inferred],
             path: PathBuf::from("../repo.feature-auth"),
-            path_is_inferred: true,
             path_state: WorkspacePathState::Inferred,
             commit_id: String::from("def456"),
             message: String::from("Feature auth work"),
@@ -102,7 +131,6 @@ fn renders_missing_status_without_inferred_status_for_non_inferred_path() {
         name: WorkspaceName::new("feature-auth").expect("valid workspace"),
         statuses: vec![WorkspaceListStatus::Missing],
         path: PathBuf::from("../repo.feature-auth"),
-        path_is_inferred: false,
         path_state: WorkspacePathState::Missing,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
@@ -122,7 +150,6 @@ fn renders_combined_workspace_statuses() {
         name: WorkspaceName::new("feature-auth").expect("valid workspace"),
         statuses: vec![WorkspaceListStatus::Inferred, WorkspaceListStatus::Missing],
         path: PathBuf::from("../repo.feature-auth"),
-        path_is_inferred: true,
         path_state: WorkspacePathState::Missing,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
