@@ -1,10 +1,10 @@
-use jj_navi::doctor::{
+use jj_navi::diagnostics::{
     DoctorFinding, DoctorFindingCode, DoctorReport, DoctorScope, DoctorSeverity,
+    render_doctor_report, render_doctor_report_json,
 };
 use jj_navi::output::{
     DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
-    render_doctor_report, render_doctor_report_json, render_error_message, render_shell_init,
-    render_shell_install_block, render_workspace_table,
+    render_error_message, render_shell_init, render_shell_install_block, render_workspace_table,
 };
 use jj_navi::types::{
     ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
@@ -122,6 +122,10 @@ fn renders_bash_shell_init() {
     assert!(rendered.contains("navi()"));
     assert!(rendered.contains(DIRECTIVE_FILE_ENV_VAR));
     assert!(rendered.contains("command navi \"$@\""));
+    assert!(rendered.contains("local directive_file exit_code=0 source_exit_code=0"));
+    assert!(rendered.contains("source_exit_code=$?"));
+    assert!(rendered.contains("exit_code=$source_exit_code"));
+    assert!(!rendered.contains("if [[ $exit_code -eq 0 ]]; then\n                exit_code=$?"));
 }
 
 #[test]

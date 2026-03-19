@@ -1,7 +1,6 @@
 //! Output rendering helpers for CLI-facing text and shell integration.
 
 mod render;
-mod shell;
 
 use anstyle::{Ansi256Color, AnsiColor, Color, Effects, RgbColor, Style};
 use clap::builder::styling::Styles;
@@ -11,11 +10,11 @@ use std::sync::OnceLock;
 
 use crate::repo::config_list;
 
-pub use render::{render_doctor_report, render_doctor_report_json, render_workspace_table};
-pub use shell::{
+pub use crate::shell::{
     DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
     render_shell_init, render_shell_install_block, write_cd_directive,
 };
+pub use render::render_workspace_table;
 
 const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
 static OUTPUT_THEME: OnceLock<OutputTheme> = OnceLock::new();
@@ -417,12 +416,15 @@ pub(super) fn style_detail_label(label: &str) -> String {
     styled_stdout_text(&format!("{label}:"), theme().detail_label)
 }
 
-pub(super) fn style_status_badge(label: &str, severity: crate::doctor::DoctorSeverity) -> String {
+pub(crate) fn style_status_badge(
+    label: &str,
+    severity: crate::diagnostics::DoctorSeverity,
+) -> String {
     let plain = format!("[ {label} ]");
     let style = match severity {
-        crate::doctor::DoctorSeverity::Error => theme().error_badge,
-        crate::doctor::DoctorSeverity::Warning => theme().warning_badge,
-        crate::doctor::DoctorSeverity::Info => theme().ok_badge,
+        crate::diagnostics::DoctorSeverity::Error => theme().error_badge,
+        crate::diagnostics::DoctorSeverity::Warning => theme().warning_badge,
+        crate::diagnostics::DoctorSeverity::Info => theme().ok_badge,
     };
     styled_stdout_text(&plain, style)
 }

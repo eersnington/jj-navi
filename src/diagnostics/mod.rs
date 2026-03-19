@@ -1,6 +1,10 @@
 //! Typed diagnostics produced by `navi doctor`.
 
+mod render;
+
 use serde::Serialize;
+
+pub use render::{render_doctor_report, render_doctor_report_json};
 
 /// Severity level for a doctor finding.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
