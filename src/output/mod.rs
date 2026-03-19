@@ -14,7 +14,7 @@ pub use crate::shell::{
     DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
     render_shell_init, render_shell_install_block, write_cd_directive,
 };
-pub use render::render_workspace_table;
+pub use render::{render_workspace_list_json, render_workspace_table};
 
 const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
 static OUTPUT_THEME: OnceLock<OutputTheme> = OnceLock::new();

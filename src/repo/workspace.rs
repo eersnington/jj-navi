@@ -4,16 +4,19 @@ use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
-use crate::types::{RepoConfig, WorkspaceListEntry, WorkspaceName};
+use crate::types::{
+    RepoConfig, WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceMetadataStatus,
+    WorkspaceName, WorkspacePathSnapshot, WorkspaceSnapshot,
+};
 
 use super::config::{ensure_repo_config, load_repo_config};
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
 use super::jj::JjClient;
 use super::metadata::WorkspaceMetadataStore;
 use super::paths::{
-    ResolvedWorkspacePath, WorkspaceMetadataStatus, WorkspacePathResolutionOptions,
-    WorkspaceTemplateInputs, derive_repo_name, display_path_for_list, metadata_status,
-    planned_workspace_root, resolve_workspace_path_from_sources, workspace_list_statuses,
+    ResolvedWorkspacePath, WorkspacePathResolutionOptions, WorkspaceTemplateInputs,
+    derive_repo_name, display_path_for_list, metadata_status, planned_workspace_root,
+    resolve_workspace_path_from_sources, workspace_list_statuses,
 };
 
 pub struct NaviWorkspace {
@@ -23,6 +26,18 @@ pub struct NaviWorkspace {
     current_workspace: WorkspaceName,
     config: RepoConfig,
     repo_name: String,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct WorkspaceSnapshotInputs<'a> {
+    pub(crate) workspace_root: &'a Path,
+    pub(crate) repo_storage_path: &'a Path,
+    pub(crate) current_workspace: Option<&'a WorkspaceName>,
+    pub(crate) config: &'a RepoConfig,
+    pub(crate) repo_name: &'a str,
+    pub(crate) metadata: &'a WorkspaceMetadataStore,
+    pub(crate) metadata_is_valid: bool,
+    pub(crate) allow_switchable_path: bool,
 }
 
 impl NaviWorkspace {
@@ -62,6 +77,11 @@ impl NaviWorkspace {
             &self.config.workspace_template,
             workspace,
         )
+    }
+
+    #[must_use]
+    pub(crate) fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     #[must_use]
@@ -150,43 +170,77 @@ impl NaviWorkspace {
     /// Returns an error if `jj workspace list` fails or if a workspace name is
     /// invalid for navi.
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceListEntry>> {
-        let jj = JjClient::new(&self.workspace_root);
-        let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
-        let workspace_entries = jj.list_workspaces()?;
-        let mut entries = Vec::with_capacity(workspace_entries.len());
+        let snapshots = self.list_workspace_snapshots()?;
 
-        for entry in workspace_entries {
-            let resolved = self.resolve_workspace_path_with_metadata(&entry.name, &metadata);
-            let metadata_status = metadata_status(&entry.name, &metadata);
-            entries.push(self.workspace_entry(entry, &resolved, metadata_status));
-        }
-
-        entries.sort_by(|left, right| left.name.cmp(&right.name));
-
-        Ok(entries)
+        Ok(snapshots
+            .iter()
+            .map(|snapshot| self.list_entry(snapshot))
+            .collect())
     }
 
-    fn workspace_entry(
-        &self,
+    /// List repo workspaces as shared snapshots.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `jj workspace list` fails or if a workspace name is
+    /// invalid for navi.
+    pub(crate) fn list_workspace_snapshots(&self) -> Result<Vec<WorkspaceSnapshot>> {
+        let jj = JjClient::new(&self.workspace_root);
+        let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
+        collect_workspace_snapshots(
+            WorkspaceSnapshotInputs {
+                workspace_root: &self.workspace_root,
+                repo_storage_path: &self.repo_storage_path,
+                current_workspace: Some(&self.current_workspace),
+                config: &self.config,
+                repo_name: &self.repo_name,
+                metadata: &metadata,
+                metadata_is_valid: true,
+                allow_switchable_path: true,
+            },
+            &jj,
+        )
+    }
+
+    fn workspace_snapshot(
         entry: super::jj::JjWorkspaceListEntry,
         resolved: &ResolvedWorkspacePath,
         metadata_status: WorkspaceMetadataStatus,
-    ) -> WorkspaceListEntry {
-        let path = if entry.is_current {
-            PathBuf::from(".")
-        } else {
-            display_path_for_list(&self.workspace_root, &resolved.path)
-        };
+    ) -> WorkspaceSnapshot {
         let statuses = workspace_list_statuses(&entry.name, resolved, metadata_status);
 
-        WorkspaceListEntry {
+        WorkspaceSnapshot {
             is_current: entry.is_current,
             name: entry.name,
-            statuses,
-            path,
-            path_state: resolved.state,
+            path: WorkspacePathSnapshot {
+                path: resolved.path.clone(),
+                state: resolved.state,
+                source: resolved.source,
+            },
+            health: WorkspaceHealthSnapshot {
+                statuses,
+                metadata_status,
+            },
             commit_id: entry.commit_id,
             message: entry.message,
+        }
+    }
+
+    fn list_entry(&self, snapshot: &WorkspaceSnapshot) -> WorkspaceListEntry {
+        let path = if snapshot.is_current {
+            PathBuf::from(".")
+        } else {
+            display_path_for_list(&self.workspace_root, &snapshot.path.path)
+        };
+
+        WorkspaceListEntry {
+            is_current: snapshot.is_current,
+            name: snapshot.name.clone(),
+            statuses: snapshot.health.statuses.clone(),
+            path,
+            path_state: snapshot.path.state,
+            commit_id: snapshot.commit_id.clone(),
+            message: snapshot.message.clone(),
         }
     }
 
@@ -243,4 +297,40 @@ impl NaviWorkspace {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
         }
     }
+}
+
+pub(crate) fn collect_workspace_snapshots(
+    inputs: WorkspaceSnapshotInputs<'_>,
+    jj: &JjClient<'_>,
+) -> Result<Vec<WorkspaceSnapshot>> {
+    let workspace_entries = jj.list_workspaces()?;
+    let mut snapshots = Vec::with_capacity(workspace_entries.len());
+
+    for entry in workspace_entries {
+        let resolved = resolve_workspace_path_from_sources(
+            inputs.workspace_root,
+            inputs.repo_storage_path,
+            &entry.name,
+            jj,
+            WorkspacePathResolutionOptions {
+                current_workspace: inputs.current_workspace,
+                metadata: inputs.metadata_is_valid.then_some(inputs.metadata),
+                template: WorkspaceTemplateInputs {
+                    repo_name: inputs.repo_name,
+                    template: &inputs.config.workspace_template,
+                    allow_switchable_path: inputs.allow_switchable_path,
+                },
+            },
+        );
+        let metadata_status = metadata_status(&entry.name, inputs.metadata);
+        snapshots.push(NaviWorkspace::workspace_snapshot(
+            entry,
+            &resolved,
+            metadata_status,
+        ));
+    }
+
+    snapshots.sort_by(|left, right| left.name.cmp(&right.name));
+
+    Ok(snapshots)
 }

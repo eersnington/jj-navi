@@ -5,32 +5,16 @@ use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
-use crate::types::{WorkspaceListStatus, WorkspaceName, WorkspacePathState, WorkspaceTemplate};
+use crate::types::{
+    WorkspaceListStatus, WorkspaceMetadataStatus, WorkspaceName, WorkspacePathSource,
+    WorkspacePathState, WorkspaceTemplate,
+};
 
 use super::discovery::resolve_repo_storage_path;
 use super::jj::JjClient;
 use super::metadata::WorkspaceMetadataStore;
 
 const DEFAULT_WORKSPACE_NAME: &str = "default";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum WorkspacePathSource {
-    CurrentWorkspace,
-    JjRecorded,
-    RepoPrimary,
-    NaviMetadata,
-    Template,
-}
-
-impl WorkspacePathSource {
-    const fn is_inferred(self) -> bool {
-        matches!(self, Self::NaviMetadata | Self::Template)
-    }
-
-    pub(crate) const fn needs_switch_warning(self) -> bool {
-        matches!(self, Self::Template)
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedWorkspacePath {
@@ -53,13 +37,6 @@ enum CandidateState {
     Valid,
     Missing,
     Stale,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum WorkspaceMetadataStatus {
-    MissingRecord,
-    PresentWithoutPath,
-    PresentWithPath,
 }
 
 #[derive(Clone, Copy)]

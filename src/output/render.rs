@@ -1,4 +1,9 @@
-use crate::types::{WorkspaceListEntry, WorkspaceListStatus, WorkspacePathState};
+use pathdiff::diff_paths;
+use serde::Serialize;
+
+use crate::types::{
+    WorkspaceListEntry, WorkspaceListStatus, WorkspacePathState, WorkspaceSnapshot,
+};
 
 use super::{
     INFERRED_ISSUE_URL, hyperlink, hyperlink_enabled, pad_visible, style_list_badge, style_meta,
@@ -6,6 +11,7 @@ use super::{
 };
 
 use std::fmt::Write;
+use std::path::Path;
 
 const CURRENT_HEADER: &str = "cur";
 const WORKSPACE_HEADER: &str = "workspace";
@@ -86,6 +92,60 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
     }
 
     output
+}
+
+/// Render workspace snapshots as JSON.
+///
+/// # Errors
+///
+/// Returns an error if the payload cannot be serialized.
+pub fn render_workspace_list_json(
+    workspace_root: &Path,
+    snapshots: &[WorkspaceSnapshot],
+    compact: bool,
+) -> crate::Result<String> {
+    let payload = WorkspaceListJsonOutput {
+        workspaces: snapshots
+            .iter()
+            .map(|snapshot| WorkspaceJsonEntry {
+                name: snapshot.name.as_str(),
+                is_current: snapshot.is_current,
+                commit_id: snapshot.commit_id.as_str(),
+                message: snapshot.message.as_str(),
+                path: WorkspacePathJson {
+                    display: if snapshot.is_current {
+                        String::from(".")
+                    } else {
+                        diff_paths(&snapshot.path.path, workspace_root)
+                            .unwrap_or_else(|| snapshot.path.path.clone())
+                            .display()
+                            .to_string()
+                    },
+                    absolute: snapshot.path.path.display().to_string(),
+                    state: snapshot.path.state.label(),
+                    source: snapshot.path.source.label(),
+                },
+                health: WorkspaceHealthJson {
+                    statuses: snapshot
+                        .health
+                        .statuses
+                        .iter()
+                        .map(|status| status.label())
+                        .collect(),
+                    metadata_status: snapshot.health.metadata_status.label(),
+                },
+            })
+            .collect(),
+    };
+
+    let rendered = if compact {
+        serde_json::to_string(&payload)
+    } else {
+        serde_json::to_string_pretty(&payload)
+    }
+    .map_err(|error| crate::Error::JsonSerialization(error.to_string()))?;
+
+    Ok(rendered)
 }
 
 fn render_workspace_status(entry: &WorkspaceListEntry) -> RenderedCell {
@@ -170,4 +230,33 @@ struct RenderedWorkspaceEntry<'a> {
 struct RenderedCell {
     rendered: String,
     visible_len: usize,
+}
+
+#[derive(Serialize)]
+struct WorkspaceListJsonOutput<'a> {
+    workspaces: Vec<WorkspaceJsonEntry<'a>>,
+}
+
+#[derive(Serialize)]
+struct WorkspaceJsonEntry<'a> {
+    name: &'a str,
+    is_current: bool,
+    commit_id: &'a str,
+    message: &'a str,
+    path: WorkspacePathJson,
+    health: WorkspaceHealthJson<'a>,
+}
+
+#[derive(Serialize)]
+struct WorkspacePathJson {
+    display: String,
+    absolute: String,
+    state: &'static str,
+    source: &'static str,
+}
+
+#[derive(Serialize)]
+struct WorkspaceHealthJson<'a> {
+    statuses: Vec<&'a str>,
+    metadata_status: &'static str,
 }
