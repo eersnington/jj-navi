@@ -5,17 +5,18 @@ use crate::diagnostics::{
 };
 use crate::error::{Error, Result};
 use crate::shell;
-use crate::types::{RepoConfig, WorkspaceName, WorkspacePathState};
+use crate::types::{
+    RepoConfig, WorkspaceMetadataStatus, WorkspaceName, WorkspacePathSource, WorkspacePathState,
+};
 
 use super::config::load_repo_config;
 use super::discovery::{find_workspace_root, resolve_repo_storage_path};
 use super::jj::JjClient;
 use super::metadata::{WorkspaceMetadataEntry, WorkspaceMetadataStore};
 use super::paths::{
-    WorkspaceMetadataStatus, WorkspacePathResolutionOptions, WorkspacePathSource,
-    WorkspaceTemplateInputs, derive_repo_name_for_doctor, display_path_for_list, metadata_status,
-    resolve_workspace_path_from_sources, should_report_missing_navi_metadata,
+    derive_repo_name_for_doctor, display_path_for_list, should_report_missing_navi_metadata,
 };
+use super::workspace::{WorkspaceSnapshotInputs, collect_workspace_snapshots};
 
 pub(crate) fn build_doctor_report(path: &Path, command_name: &str) -> Result<DoctorReport> {
     let cwd = path.canonicalize()?;
@@ -117,30 +118,40 @@ impl DoctorWorkspace {
         jj: &JjClient<'_>,
         metadata: &WorkspaceMetadataStore,
     ) -> Result<Vec<DoctorFinding>> {
-        let workspace_entries = jj.list_workspaces()?;
+        let snapshots = collect_workspace_snapshots(
+            WorkspaceSnapshotInputs {
+                workspace_root: &self.workspace_root,
+                repo_storage_path: &self.repo_storage_path,
+                current_workspace: self.current_workspace.as_ref(),
+                config: &self.config,
+                repo_name: &self.repo_name,
+                metadata,
+                metadata_is_valid: self.metadata_is_valid,
+                allow_switchable_path: self.config_is_valid,
+            },
+            jj,
+        )?;
         let mut findings = Vec::new();
 
-        for entry in &workspace_entries {
-            let resolved = self.resolve_workspace_path_with_metadata(&entry.name, metadata, jj);
-            let metadata_status = metadata_status(&entry.name, metadata);
-            match resolved.state {
+        for snapshot in &snapshots {
+            let display_path = display_path_for_list(&self.workspace_root, &snapshot.path.path)
+                .display()
+                .to_string();
+            match snapshot.path.state {
                 WorkspacePathState::Confirmed => {}
                 WorkspacePathState::Inferred => {
-                    let display_path = display_path_for_list(&self.workspace_root, &resolved.path)
-                        .display()
-                        .to_string();
-                    let (message, hint) = match resolved.source {
+                    let (message, hint) = match snapshot.path.source {
                         WorkspacePathSource::NaviMetadata => (
                             format!(
                                 "workspace '{}' is using a validated metadata fallback path",
-                                entry.name
+                                snapshot.name
                             ),
                             format!("resolved from navi metadata: {display_path}"),
                         ),
                         WorkspacePathSource::Template => (
                             format!(
                                 "workspace '{}' is using a validated template path",
-                                entry.name
+                                snapshot.name
                             ),
                             format!("resolved from workspace template: {display_path}"),
                         ),
@@ -150,74 +161,61 @@ impl DoctorWorkspace {
                             debug_assert!(
                                 false,
                                 "inferred workspace path used non-inferred source: {:?}",
-                                resolved.source
+                                snapshot.path.source
                             );
                             continue;
                         }
                     };
                     findings.push(inferred_path_finding(
-                        &entry.name,
+                        &snapshot.name,
                         message,
                         hint,
-                        display_path,
+                        display_path.clone(),
                     ));
                 }
                 WorkspacePathState::Missing => findings.push(workspace_finding(
                     DoctorSeverity::Warning,
                     DoctorFindingCode::WorkspaceDirectoryMissing,
-                    &entry.name,
-                    format!("workspace '{}' directory is missing", entry.name),
-                    Some(format!(
-                        "last known path: {}",
-                        display_path_for_list(&self.workspace_root, &resolved.path).display()
-                    )),
-                    Some(
-                        display_path_for_list(&self.workspace_root, &resolved.path)
-                            .display()
-                            .to_string(),
-                    ),
+                    &snapshot.name,
+                    format!("workspace '{}' directory is missing", snapshot.name),
+                    Some(format!("last known path: {display_path}")),
+                    Some(display_path.clone()),
                 )),
                 WorkspacePathState::Stale => findings.push(workspace_finding(
                     DoctorSeverity::Warning,
                     DoctorFindingCode::WorkspaceDirectoryStale,
-                    &entry.name,
-                    format!("workspace '{}' directory is stale", entry.name),
+                    &snapshot.name,
+                    format!("workspace '{}' directory is stale", snapshot.name),
                     Some(format!(
-                        "best known path no longer validates: {}",
-                        display_path_for_list(&self.workspace_root, &resolved.path).display()
+                        "best known path no longer validates: {display_path}"
                     )),
-                    Some(
-                        display_path_for_list(&self.workspace_root, &resolved.path)
-                            .display()
-                            .to_string(),
-                    ),
+                    Some(display_path.clone()),
                 )),
             }
 
             if self.metadata_is_valid
-                && matches!(metadata_status, WorkspaceMetadataStatus::MissingRecord)
-                && should_report_missing_navi_metadata(&entry.name)
+                && matches!(
+                    snapshot.health.metadata_status,
+                    WorkspaceMetadataStatus::MissingRecord
+                )
+                && should_report_missing_navi_metadata(&snapshot.name)
             {
                 findings.push(workspace_finding(
                     DoctorSeverity::Info,
                     DoctorFindingCode::JjOnlyWorkspace,
-                    &entry.name,
+                    &snapshot.name,
                     format!(
                         "workspace '{}' exists in jj but has no navi metadata",
-                        entry.name
+                        snapshot.name
                     ),
                     None,
-                    Some(
-                        display_path_for_list(&self.workspace_root, &resolved.path)
-                            .display()
-                            .to_string(),
-                    ),
+                    Some(display_path),
                 ));
             }
         }
 
         if self.metadata_is_valid {
-            findings.extend(self.collect_metadata_only_findings(&workspace_entries, metadata));
+            findings.extend(self.collect_metadata_only_findings(&snapshots, metadata));
         }
 
         Ok(findings)
@@ -225,17 +223,13 @@ impl DoctorWorkspace {
 
     fn collect_metadata_only_findings(
         &self,
-        workspace_entries: &[super::jj::JjWorkspaceListEntry],
+        snapshots: &[crate::types::WorkspaceSnapshot],
         metadata: &WorkspaceMetadataStore,
     ) -> Vec<DoctorFinding> {
         metadata
             .entries()
             .into_iter()
-            .filter(|entry| {
-                !workspace_entries
-                    .iter()
-                    .any(|workspace| workspace.name == entry.name)
-            })
+            .filter(|entry| !snapshots.iter().any(|snapshot| snapshot.name == entry.name))
             .map(|entry| self.metadata_only_finding(&entry))
             .collect()
     }
@@ -259,29 +253,6 @@ impl DoctorWorkspace {
             path: display_path,
             hint: Some(String::from("safe prune candidate")),
         }
-    }
-
-    fn resolve_workspace_path_with_metadata(
-        &self,
-        workspace: &WorkspaceName,
-        metadata: &WorkspaceMetadataStore,
-        jj: &JjClient<'_>,
-    ) -> super::paths::ResolvedWorkspacePath {
-        resolve_workspace_path_from_sources(
-            &self.workspace_root,
-            &self.repo_storage_path,
-            workspace,
-            jj,
-            WorkspacePathResolutionOptions {
-                current_workspace: self.current_workspace.as_ref(),
-                metadata: self.metadata_is_valid.then_some(metadata),
-                template: WorkspaceTemplateInputs {
-                    repo_name: &self.repo_name,
-                    template: &self.config.workspace_template,
-                    allow_switchable_path: self.config_is_valid,
-                },
-            },
-        )
     }
 }
 

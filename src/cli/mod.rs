@@ -31,7 +31,13 @@ enum Commands {
         workspace: String,
     },
     #[command(about = "List known workspaces with path and commit details")]
-    List,
+    List {
+        #[arg(long, help = "Render workspaces as JSON")]
+        json: bool,
+
+        #[arg(long, help = "Render compact JSON", requires = "json")]
+        compact: bool,
+    },
     #[command(about = "Inspect repo, workspace, and shell health")]
     Doctor {
         #[arg(long, help = "Render diagnostics as JSON")]
@@ -126,7 +132,7 @@ fn try_run(
             revision,
             workspace,
         } => commands::switch::run_switch(&path, &workspace, create, revision.as_deref())?,
-        Commands::List => commands::list::run_list(&path)?,
+        Commands::List { json, compact } => commands::list::run_list(&path, json, compact)?,
         Commands::Doctor { json, compact } => {
             return Ok(commands::doctor::run_doctor(
                 &path, bin_name, json, compact,

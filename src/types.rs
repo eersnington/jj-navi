@@ -173,7 +173,110 @@ pub struct RepoConfig {
     pub workspace_template: WorkspaceTemplate,
 }
 
+/// Shared path source used by workspace health snapshots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspacePathSource {
+    /// Path comes from the currently opened workspace root.
+    CurrentWorkspace,
+    /// Path comes from `jj workspace root --name`.
+    JjRecorded,
+    /// Path comes from the repo-primary root fallback.
+    RepoPrimary,
+    /// Path comes from validated `navi` metadata.
+    NaviMetadata,
+    /// Path comes from the deterministic workspace template.
+    Template,
+}
+
+impl WorkspacePathSource {
+    /// Whether this source is a validated fallback rather than direct JJ truth.
+    #[must_use]
+    pub const fn is_inferred(self) -> bool {
+        matches!(self, Self::NaviMetadata | Self::Template)
+    }
+
+    /// Whether `switch` should warn when navigating via this source.
+    #[must_use]
+    pub const fn needs_switch_warning(self) -> bool {
+        matches!(self, Self::Template)
+    }
+
+    /// Return the machine-readable label for this source.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::CurrentWorkspace => "current_workspace",
+            Self::JjRecorded => "jj_recorded",
+            Self::RepoPrimary => "repo_primary",
+            Self::NaviMetadata => "navi_metadata",
+            Self::Template => "template",
+        }
+    }
+}
+
+/// Presence of repo-scoped metadata for a workspace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceMetadataStatus {
+    /// No metadata record exists for the workspace.
+    MissingRecord,
+    /// Metadata record exists, but it does not currently expose a path.
+    PresentWithoutPath,
+    /// Metadata record exists and contains a path.
+    PresentWithPath,
+}
+
+impl WorkspaceMetadataStatus {
+    /// Return the machine-readable label for this metadata status.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::MissingRecord => "missing_record",
+            Self::PresentWithoutPath => "present_without_path",
+            Self::PresentWithPath => "present_with_path",
+        }
+    }
+}
+
+/// Shared path snapshot for one workspace.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspacePathSnapshot {
+    /// Absolute workspace path chosen by resolution.
+    pub path: PathBuf,
+    /// How trustworthy the resolved path is.
+    pub state: WorkspacePathState,
+    /// Which source produced the chosen path.
+    pub source: WorkspacePathSource,
+}
+
+/// Shared health snapshot for one workspace.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceHealthSnapshot {
+    /// Compact list-facing health statuses.
+    pub statuses: Vec<WorkspaceListStatus>,
+    /// Repo-scoped metadata presence for this workspace.
+    pub metadata_status: WorkspaceMetadataStatus,
+}
+
+/// Shared repo-domain snapshot for one workspace.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceSnapshot {
+    /// Whether this workspace is the current working copy.
+    pub is_current: bool,
+    /// Workspace name.
+    pub name: WorkspaceName,
+    /// Resolved path snapshot.
+    pub path: WorkspacePathSnapshot,
+    /// Derived workspace health snapshot.
+    pub health: WorkspaceHealthSnapshot,
+    /// Short commit identifier.
+    pub commit_id: String,
+    /// First-line commit description.
+    pub message: String,
+}
+
 /// Render-ready workspace row for `navi list`.
+///
+/// This stays as a human-output adapter, not the shared repo-domain model.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceListEntry {
     /// Whether this row represents the active workspace.
@@ -203,6 +306,19 @@ pub enum WorkspacePathState {
     Missing,
     /// Best known path exists but no longer validates.
     Stale,
+}
+
+impl WorkspacePathState {
+    /// Return the machine-readable label for this path state.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Confirmed => "confirmed",
+            Self::Inferred => "inferred",
+            Self::Missing => "missing",
+            Self::Stale => "stale",
+        }
+    }
 }
 
 /// Compact status label rendered by `navi list`.
