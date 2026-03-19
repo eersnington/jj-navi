@@ -18,6 +18,7 @@ use super::paths::{
     derive_repo_name, display_path_for_list, metadata_status, planned_workspace_root,
     resolve_workspace_path_from_sources, workspace_list_statuses,
 };
+use super::state::RepoStateStore;
 
 pub struct NaviWorkspace {
     cwd: PathBuf,
@@ -101,6 +102,47 @@ impl NaviWorkspace {
         let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
 
         Ok(self.resolve_workspace_path_with_metadata(workspace, &metadata))
+    }
+
+    /// Resolve the repo-scoped previous workspace for `switch -`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no previous workspace is recorded, if the recorded
+    /// workspace no longer exists, or if repo-scoped state cannot be loaded.
+    pub(crate) fn resolve_previous_workspace_path(
+        &self,
+    ) -> Result<(WorkspaceName, ResolvedWorkspacePath)> {
+        let state = RepoStateStore::load(&self.repo_storage_path)?;
+        let workspace = state
+            .previous_workspace()
+            .filter(|workspace| *workspace != &self.current_workspace)
+            .cloned()
+            .ok_or(Error::NoPreviousWorkspace)?;
+
+        if !self.workspace_exists(&workspace)? {
+            return Err(Error::PreviousWorkspaceNotFound(
+                workspace.as_str().to_owned(),
+            ));
+        }
+
+        Ok((workspace.clone(), self.resolve_workspace_path(&workspace)?))
+    }
+
+    /// Record the workspace being left after a successful switch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if repo-scoped state cannot be loaded or saved.
+    pub(crate) fn record_previous_workspace_after_switch(
+        &self,
+        target: &WorkspaceName,
+    ) -> Result<()> {
+        if target == &self.current_workspace {
+            return Ok(());
+        }
+
+        RepoStateStore::save_previous_workspace(&self.repo_storage_path, &self.current_workspace)
     }
 
     /// Check if the target workspace directory already exists.

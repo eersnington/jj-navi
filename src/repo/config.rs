@@ -8,6 +8,7 @@ use crate::types::{RepoConfig, WorkspaceTemplate};
 
 const NAVI_DIR: &str = "navi";
 const CONFIG_FILE: &str = "config.toml";
+const STATE_FILE: &str = "state.toml";
 
 #[derive(Deserialize, Serialize)]
 struct RepoConfigFile {
@@ -62,4 +63,8 @@ pub(crate) fn navi_dir_path(repo_storage_path: &Path) -> PathBuf {
 
 pub(crate) fn repo_config_path(repo_storage_path: &Path) -> PathBuf {
     navi_dir_path(repo_storage_path).join(CONFIG_FILE)
+}
+
+pub(crate) fn repo_state_path(repo_storage_path: &Path) -> PathBuf {
+    navi_dir_path(repo_storage_path).join(STATE_FILE)
 }

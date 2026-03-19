@@ -1,5 +1,8 @@
 mod common;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use predicates::prelude::*;
 
 use common::{TempJjRepo, command};
@@ -351,5 +354,313 @@ fn switch_writes_shell_escaped_directive_for_special_paths() {
     assert_eq!(
         contents,
         format!("cd -- '../{}.space feature-auth'\\''s'\n", repo.repo_name())
+    );
+}
+
+#[test]
+fn switch_dash_fails_when_no_previous_workspace_recorded() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: no previous workspace recorded for this repository",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: switch to a different workspace first",
+        ));
+}
+
+#[test]
+fn switch_existing_records_previous_workspace_in_repo_state() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success();
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"default\""));
+}
+
+#[test]
+fn switch_create_records_previous_workspace_in_repo_state() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"default\""));
+}
+
+#[test]
+fn switch_existing_rewrites_invalid_repo_state_without_failing() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.write_navi_state("[switch\nprevious_workspace = \"default\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::is_empty());
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"default\""));
+}
+
+#[test]
+fn switch_create_rewrites_invalid_repo_state_without_failing() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_state("[switch\nprevious_workspace = \"default\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::is_empty());
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"default\""));
+}
+
+#[test]
+fn switch_dash_uses_repo_scoped_previous_workspace_state() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "-"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../{}\n", repo.repo_name())));
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"feature-auth\""));
+}
+
+#[test]
+fn switch_dash_toggles_between_last_two_workspaces() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "-"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../{}\n", repo.repo_name())));
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "-"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )));
+}
+
+#[test]
+fn switch_to_current_workspace_keeps_previous_workspace_state() {
+    let repo = TempJjRepo::new();
+    let nested_path = repo.path().join("nested");
+    std::fs::create_dir_all(&nested_path).expect("create nested path");
+    repo.write_navi_state("[switch]\nprevious_workspace = \"feature-auth\"\n");
+
+    command("navi")
+        .current_dir(&nested_path)
+        .args(["switch", "default"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("..\n"));
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"feature-auth\""));
+}
+
+#[test]
+fn failed_switch_does_not_update_previous_workspace_state() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_state("[switch]\nprevious_workspace = \"feature-auth\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "missing-workspace"])
+        .assert()
+        .failure();
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"feature-auth\""));
+}
+
+#[test]
+fn failed_switch_create_does_not_update_previous_workspace_state() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_state("[switch]\nprevious_workspace = \"feature-auth\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args([
+            "switch",
+            "--create",
+            "bugfix",
+            "--revision",
+            "missing-revision",
+        ])
+        .assert()
+        .failure();
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"feature-auth\""));
+}
+
+#[test]
+fn switch_dash_fails_when_previous_workspace_no_longer_exists() {
+    let repo = TempJjRepo::new();
+    repo.write_navi_state("[switch]\nprevious_workspace = \"feature-auth\"\n");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: previous workspace 'feature-auth' no longer exists in this repository",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: switch to an existing workspace first",
+        ));
+}
+
+#[test]
+fn switch_dash_writes_cd_directive_when_shell_integration_is_active() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    let directive_dir = tempfile::TempDir::new().expect("temp directive dir");
+    let directive_file = directive_dir.path().join("navi-directives.sh");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .env("NAVI_DIRECTIVE_FILE", &directive_file)
+        .args(["switch", "-"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let contents = std::fs::read_to_string(directive_file).expect("read directive file");
+    assert_eq!(contents, format!("cd -- '../{}'\n", repo.repo_name()));
+}
+
+#[cfg(unix)]
+#[test]
+fn switch_existing_warns_but_succeeds_when_repo_state_cannot_be_saved() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.write_navi_state("[switch]\nprevious_workspace = \"stale\"\n");
+    let mut permissions = std::fs::metadata(repo.navi_state_path())
+        .expect("state metadata")
+        .permissions();
+    permissions.set_mode(0o444);
+    std::fs::set_permissions(repo.navi_state_path(), permissions).expect("set state permissions");
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::contains(
+            "warning: failed to record previous workspace state",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: check .jj/repo/navi/state.toml permissions and contents",
+        ));
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"stale\""));
+}
+
+#[cfg(unix)]
+#[test]
+fn switch_writes_cd_directive_and_warns_when_repo_state_cannot_be_saved() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+    repo.write_navi_state("[switch]\nprevious_workspace = \"stale\"\n");
+    let mut permissions = std::fs::metadata(repo.navi_state_path())
+        .expect("state metadata")
+        .permissions();
+    permissions.set_mode(0o444);
+    std::fs::set_permissions(repo.navi_state_path(), permissions).expect("set state permissions");
+    let directive_dir = tempfile::TempDir::new().expect("temp directive dir");
+    let directive_file = directive_dir.path().join("navi-directives.sh");
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("NAVI_DIRECTIVE_FILE", &directive_file)
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains(
+            "warning: failed to record previous workspace state",
+        ));
+
+    let contents = std::fs::read_to_string(directive_file).expect("read directive file");
+    assert_eq!(
+        contents,
+        format!("cd -- '../{}.feature-auth'\n", repo.repo_name())
     );
 }

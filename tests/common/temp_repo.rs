@@ -88,6 +88,14 @@ impl TempJjRepo {
             .join("workspaces.toml")
     }
 
+    pub fn navi_state_path(&self) -> PathBuf {
+        self.path()
+            .join(".jj")
+            .join("repo")
+            .join("navi")
+            .join("state.toml")
+    }
+
     pub fn workspace_store_index_path(&self) -> PathBuf {
         self.path()
             .join(".jj")
@@ -108,6 +116,13 @@ impl TempJjRepo {
         let parent = path.parent().expect("metadata parent");
         fs::create_dir_all(parent).expect("create navi metadata dir");
         fs::write(path, contents).expect("write navi metadata");
+    }
+
+    pub fn write_navi_state(&self, contents: &str) {
+        let path = self.navi_state_path();
+        let parent = path.parent().expect("state parent");
+        fs::create_dir_all(parent).expect("create navi state dir");
+        fs::write(path, contents).expect("write navi state");
     }
 
     pub fn clear_workspace_store_index(&self) {
