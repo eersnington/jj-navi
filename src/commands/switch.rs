@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::output::write_cd_directive;
 use crate::repo::NaviWorkspace;
+use crate::shell::write_cd_directive;
 use crate::types::{WorkspaceName, WorkspacePathState};
 use crate::{Error, Result};
 

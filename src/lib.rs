@@ -4,15 +4,16 @@
 //! It exposes the binary entrypoint plus a narrow set of formatting and domain
 //! types used by the test suite.
 
-mod app;
 mod cli;
-pub mod doctor;
+mod commands;
+pub mod diagnostics;
 mod error;
 pub mod output;
 mod repo;
+mod shell;
 pub mod types;
 
 /// Run the CLI binary entrypoint with the provided binary name and argv.
-pub use app::main as run;
+pub use cli::run;
 /// Crate-wide error type.
 pub use error::{Error, Result};

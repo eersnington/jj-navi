@@ -90,6 +90,55 @@ fn doctor_reports_missing_workspace_directory() {
 }
 
 #[test]
+fn doctor_reports_metadata_inferred_path_source() {
+    let repo = TempJjRepo::new();
+    let home = tempfile::TempDir::new().expect("temp home");
+    install_bash_shell_integration(home.path());
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/bash")
+        .args(["doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workspace 'feature-auth' is using a validated metadata fallback path",
+        ))
+        .stdout(predicate::str::contains("resolved from navi metadata:"));
+}
+
+#[test]
+fn doctor_reports_template_inferred_path_source() {
+    let repo = TempJjRepo::new();
+    let home = tempfile::TempDir::new().expect("temp home");
+    install_bash_shell_integration(home.path());
+    repo.create_workspace("feature-auth");
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/bash")
+        .args(["doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workspace 'feature-auth' is using a validated template path",
+        ))
+        .stdout(predicate::str::contains(
+            "resolved from workspace template:",
+        ));
+}
+
+#[test]
 fn doctor_reports_metadata_only_workspace() {
     let repo = TempJjRepo::new();
     let home = tempfile::TempDir::new().expect("temp home");
@@ -225,6 +274,33 @@ fn doctor_reports_orphaned_current_workspace() {
         .stdout(predicate::str::contains(
             "x [ error ]  current directory is no longer a registered jj workspace",
         ));
+}
+
+#[test]
+fn doctor_uses_repo_name_from_primary_root_when_current_workspace_is_orphaned() {
+    let repo = TempJjRepo::new();
+    let home = tempfile::TempDir::new().expect("temp home");
+    install_bash_shell_integration(home.path());
+    let feature_path = repo.create_workspace("feature-auth");
+    repo.create_workspace("bugfix-api");
+    repo.clear_workspace_store_index();
+    repo.run(&["workspace", "forget", "feature-auth"]);
+
+    command("navi")
+        .current_dir(&feature_path)
+        .env("HOME", home.path())
+        .env("SHELL", "/bin/bash")
+        .args(["doctor"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(format!(
+            "../{}.bugfix-api",
+            repo.repo_name()
+        )))
+        .stdout(
+            predicate::str::contains(format!("../{}.feature-auth.bugfix-api", repo.repo_name()))
+                .not(),
+        );
 }
 
 #[test]

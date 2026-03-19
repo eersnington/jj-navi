@@ -14,33 +14,37 @@
 
 ```text
 src/
+├── lib.rs                # crate surface and shared exports
 ├── main.rs + bin/nv.rs   # thin binary entrypoints
-├── app.rs                # clap parsing and top-level dispatch
-├── cli/                  # command handlers
-├── repo/                 # JJ integration, discovery, config, metadata
-├── output.rs             # human/json/shell rendering
-├── doctor.rs             # typed diagnostics model
+├── cli/                  # clap parsing and top-level dispatch
+├── commands/             # thin command handlers and orchestration
+├── repo/                 # JJ integration, discovery, config, metadata, path resolution
+├── diagnostics/          # typed doctor model and rendering
+├── output/               # human-facing rendering and styling
+├── shell/                # shell integration rendering, install, directives
 ├── types.rs              # validated domain and presentation types
 └── error.rs              # crate error type
 tests/
-├── integration_tests.rs  # real jj integration coverage
-├── unit_tests.rs         # pure black-box tests only
-└── common/               # TempJjRepo harness
+├── repo_integration_tests.rs  # real jj integration coverage
+├── *_tests.rs                 # command and output behavior coverage
+├── unit_tests.rs              # pure black-box tests only
+└── common/                    # TempJjRepo harness
 ```
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add or change a command | `src/app.rs`, `src/cli/` | Keep command handlers thin |
+| Add or change a command | `src/cli/mod.rs`, `src/commands/` | Keep parsing and handlers thin |
 | JJ-facing behavior | `src/repo/` | Discovery, validation, JJ calls, repo-scoped state |
-| Output changes | `src/output.rs` | Keep rendering separate from repo logic |
-| Domain rules | `src/types.rs`, `src/error.rs`, `src/doctor.rs` | Validate at boundaries, keep types explicit |
-| Real repo behavior tests | `tests/integration_tests.rs`, `tests/common/` | Prefer these over mocks |
+| Output changes | `src/output/`, `src/diagnostics/render.rs`, `src/shell/` | Keep rendering separate from repo logic |
+| Domain rules | `src/types.rs`, `src/error.rs`, `src/diagnostics/` | Validate at boundaries, keep types explicit |
+| Real repo behavior tests | `tests/repo_integration_tests.rs`, `tests/common/` | Prefer these over mocks |
 
 ## ARCHITECTURE
 
-- Command handlers orchestrate. Repo logic belongs in `src/repo/`. Rendering belongs in `src/output.rs`.
+- CLI parsing belongs in `src/cli/`. Command handlers orchestrate in `src/commands/`. Repo logic belongs in `src/repo/`.
+- Human-facing rendering belongs in `src/output/` and `src/diagnostics/render.rs`. Shell integration belongs in `src/shell/`.
 - Commands must work from nested directories inside a workspace, not only the workspace root.
 - `navi` and `nv` should behave the same apart from the displayed command name.
 - Preserve existing path-recovery behavior unless intentionally redesigning it.
