@@ -550,7 +550,7 @@ Docs should explain the product in this order:
 3. how shell integration works
 4. how to launch agents from `switch`
 5. how to use `list`
-6. how do debug using `doctor`
+6. how to debug using `doctor`
 7. jj limitations and fallback behavior
 
 ## 26. References
