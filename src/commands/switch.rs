@@ -28,7 +28,8 @@ pub fn run_switch(
         return Ok(());
     }
 
-    let workspace = WorkspaceName::new(workspace.to_owned())?;
+    let workspace = normalize_workspace_alias(&repo, workspace);
+    let workspace = WorkspaceName::new(workspace)?;
 
     let resolved_path = if repo.workspace_exists(&workspace)? {
         repo.resolve_workspace_path(&workspace)?
@@ -48,6 +49,14 @@ pub fn run_switch(
         &repo.record_previous_workspace_after_switch(&workspace),
     );
     Ok(())
+}
+
+fn normalize_workspace_alias(repo: &NaviWorkspace, workspace: &str) -> String {
+    if workspace == "@" {
+        repo.current_workspace_name().as_str().to_owned()
+    } else {
+        workspace.to_owned()
+    }
 }
 
 fn warn_if_previous_workspace_state_update_fails(result: &Result<()>) {

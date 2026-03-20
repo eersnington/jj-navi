@@ -86,6 +86,11 @@ impl NaviWorkspace {
     }
 
     #[must_use]
+    pub(crate) fn current_workspace_name(&self) -> &WorkspaceName {
+        &self.current_workspace
+    }
+
+    #[must_use]
     pub fn display_path_for_switch(&self, target_root: &Path) -> PathBuf {
         diff_paths(target_root, &self.cwd).unwrap_or_else(|| target_root.to_path_buf())
     }
