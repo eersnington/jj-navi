@@ -76,6 +76,27 @@ pub enum Error {
         message: String,
     },
 
+    /// Repo-scoped navi state could not be parsed or validated.
+    #[error("error: invalid repo state in {path}\n{message}")]
+    InvalidRepoState {
+        /// State file path.
+        path: PathBuf,
+        /// Validation or parse message.
+        message: String,
+    },
+
+    /// No previous workspace has been recorded for this repo.
+    #[error(
+        "error: no previous workspace recorded for this repository\nhint: switch to a different workspace first"
+    )]
+    NoPreviousWorkspace,
+
+    /// The recorded previous workspace no longer exists in this repo.
+    #[error(
+        "error: previous workspace '{0}' no longer exists in this repository\nhint: switch to an existing workspace first"
+    )]
+    PreviousWorkspaceNotFound(String),
+
     /// Workspace metadata could not be parsed or validated.
     #[error("error: invalid workspace metadata in {path}\n{message}")]
     InvalidWorkspaceMetadata {

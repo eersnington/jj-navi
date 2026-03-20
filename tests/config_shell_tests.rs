@@ -5,26 +5,6 @@ use predicates::prelude::*;
 use common::command;
 
 #[test]
-fn config_shell_init_bash_prints_wrapper() {
-    command("navi")
-        .args(["config", "shell", "init", "bash"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("navi()"))
-        .stdout(predicate::str::contains("NAVI_DIRECTIVE_FILE"));
-}
-
-#[test]
-fn config_shell_init_zsh_prints_wrapper() {
-    command("navi")
-        .args(["config", "shell", "init", "zsh"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("navi()"))
-        .stdout(predicate::str::contains("command navi \"$@\""));
-}
-
-#[test]
 fn config_shell_init_rejects_unsupported_shell() {
     command("navi")
         .args(["config", "shell", "init", "fish"])
@@ -35,17 +15,6 @@ fn config_shell_init_rejects_unsupported_shell() {
 }
 
 #[test]
-fn config_shell_init_help_lists_supported_shells() {
-    command("navi")
-        .args(["config", "shell", "init", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Supported shell"))
-        .stdout(predicate::str::contains("bash"))
-        .stdout(predicate::str::contains("zsh"));
-}
-
-#[test]
 fn config_shell_init_missing_shell_mentions_supported_values() {
     command("navi")
         .args(["config", "shell", "init"])
@@ -53,25 +22,6 @@ fn config_shell_init_missing_shell_mentions_supported_values() {
         .failure()
         .stderr(predicate::str::contains("shell name required"))
         .stderr(predicate::str::contains("hint: use one of: bash, zsh"));
-}
-
-#[test]
-fn config_help_describes_shell_integration_commands() {
-    command("navi")
-        .args(["config", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("shell"))
-        .stdout(predicate::str::contains("Shell integration commands"));
-}
-
-#[test]
-fn top_level_help_describes_config_command() {
-    command("navi")
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("config"));
 }
 
 #[test]

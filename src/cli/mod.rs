@@ -19,7 +19,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Switch to an existing workspace or create one with --create")]
+    #[command(
+        about = "Switch to an existing workspace, '-' for previous, or create one with --create"
+    )]
     Switch {
         #[arg(long, short = 'c', help = "Create the workspace if it does not exist")]
         create: bool,
@@ -27,7 +29,7 @@ enum Commands {
         #[arg(long, help = "Revision to base a newly created workspace on")]
         revision: Option<String>,
 
-        #[arg(help = "Workspace name")]
+        #[arg(help = "Workspace name, or '-' for the previous workspace")]
         workspace: String,
     },
     #[command(about = "List known workspaces with path and commit details")]
