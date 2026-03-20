@@ -35,15 +35,6 @@ Binary names:
 Minimum supported `jj`: `0.39.0`
 Minimum supported Node.js for npm install: `24`
 
-## Quick start
-
-```sh
-navi switch --create feature-auth
-navi switch feature-auth
-navi list
-navi doctor
-navi remove feature-auth
-```
 
 ## Shell integration
 
@@ -58,44 +49,32 @@ Pick the shell you actually use: `bash` or `zsh`.
 
 `navi config shell install` adds a managed block to your shell rc file so `switch` can update your current shell instead of only printing the destination path.
 
+## Quick start
+
+```sh
+navi doctor
+navi switch --create feature-auth
+navi list
+navi switch -
+navi remove feature-auth
+```
+
 ## Commands
 
 ```sh
 navi switch <workspace>
+navi switch -
+navi switch @
 navi switch --create <workspace>
 navi switch --create <workspace> --revision <revset>
 navi list
+navi list --json
+navi list --full
 navi doctor [--json] [--compact]
 navi remove <workspace>
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
 ```
-
-## What `doctor` checks
-
-- current workspace validity
-- repo config and workspace metadata parse health
-- missing, stale, and inferred workspace paths
-- JJ vs `navi` metadata drift
-- shell integration rc-file health
-
-Use `navi doctor --json` for pretty machine-readable output or `navi doctor --json --compact` for compact JSON.
-
-## What `list` shows
-
-- current marker
-- workspace name
-- workspace status
-- path
-- commit short id
-- first-line commit message
-
-When `jj` cannot resolve a workspace path, `navi` falls back to validated repo-scoped metadata and deterministic path planning instead of failing the whole command.
-
-- `inferred` means the path came from a validated `navi` fallback instead of a JJ-recorded path
-- `missing` means the best known workspace path does not exist on disk anymore
-- `stale` means a candidate path exists but no longer validates as the requested workspace in the current repo
-- `jj-only` means `jj` knows the workspace but `navi` has no metadata record for it
 
 ## Repo config
 
@@ -124,7 +103,7 @@ Default workspace path template:
 
 Release and `xtask` docs live in `xtask/README.md`.
 
-## Thanks
+## Special thanks
 
 This project was inspired by:
 
