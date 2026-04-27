@@ -13,6 +13,7 @@ use super::{
     style_table_header, style_workspace_name, styled_stdout_text, theme,
 };
 
+use std::env;
 use std::fmt::Write;
 use std::path::Path;
 
@@ -23,10 +24,26 @@ const DIFF_HEADER: &str = "diff";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
 const AGE_HEADER: &str = "age";
+const MESSAGE_HEADER: &str = "message";
+const COLUMN_SEPARATOR_WIDTH: usize = 2;
+const MESSAGE_MIN_WIDTH: usize = 10;
 
 /// Render a table of workspaces for `navi list`.
 #[must_use]
 pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
+    render_workspace_table_with_width(entries, terminal_width_from_columns_env())
+}
+
+/// Render a table of workspaces using an explicit terminal width.
+///
+/// This is exposed for integration tests; CLI code should use
+/// [`render_workspace_table`] so width detection stays centralized.
+#[doc(hidden)]
+#[must_use]
+pub fn render_workspace_table_with_width(
+    entries: &[WorkspaceListEntry],
+    terminal_width: Option<usize>,
+) -> String {
     let rendered_entries = entries
         .iter()
         .map(|entry| RenderedWorkspaceEntry {
@@ -65,6 +82,19 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         .iter()
         .map(|entry| entry.age.visible_len)
         .fold(AGE_HEADER.len(), usize::max);
+    let fixed_width_before_message = CURRENT_HEADER.len()
+        + workspace_width
+        + status_width
+        + diff_width
+        + path_width
+        + commit_width
+        + age_width
+        + (COLUMN_SEPARATOR_WIDTH * 7);
+    let message_width = terminal_width.map(|width| {
+        width
+            .saturating_sub(fixed_width_before_message)
+            .max(MESSAGE_MIN_WIDTH)
+    });
 
     let mut output = String::new();
     writeln!(
@@ -76,8 +106,8 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         style_table_header(&format!("{DIFF_HEADER:<diff_width$}")),
         style_table_header(&format!("{PATH_HEADER:<path_width$}")),
         style_table_header(&format!("{COMMIT_HEADER:<commit_width$}")),
-        style_table_header("message"),
         style_table_header(&format!("{AGE_HEADER:<age_width$}")),
+        style_table_header(&truncate_to_width(MESSAGE_HEADER, message_width)),
     )
     .expect("write table header");
 
@@ -104,13 +134,40 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
                 entry.commit_id.visible_len,
                 commit_width
             ),
-            entry.message,
             pad_visible(&entry.age.rendered, entry.age.visible_len, age_width),
+            truncate_to_width(entry.message, message_width),
         )
         .expect("write table row");
     }
 
     output
+}
+
+fn terminal_width_from_columns_env() -> Option<usize> {
+    env::var("COLUMNS")
+        .ok()
+        .and_then(|columns| columns.parse::<usize>().ok())
+        .filter(|width| *width > 0)
+}
+
+fn truncate_to_width(value: &str, width: Option<usize>) -> String {
+    let Some(width) = width else {
+        return value.to_owned();
+    };
+
+    let value_width = value.chars().count();
+    if value_width <= width {
+        return value.to_owned();
+    }
+
+    if width <= 3 {
+        return ".".repeat(width);
+    }
+
+    let keep = width - 3;
+    let mut truncated = value.chars().take(keep).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 /// Render workspace snapshots as JSON.
