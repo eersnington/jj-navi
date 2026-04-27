@@ -62,7 +62,7 @@ navi remove feature-auth        # refuses if it's the current workspace
 npm install -g jj-navi
 
 # cargo
-cargo install jj-navi --version 0.2.0
+cargo install jj-navi --version 0.2.1
 ```
 
 Binaries: `navi`, `nv`
