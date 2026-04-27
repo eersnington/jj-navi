@@ -19,7 +19,7 @@ jj workspaces are great for parallel work, but the workflow around it is quite c
 
 - **`switch --create`** — go to a workspace, creating it at a deterministic path if it doesn't exist
 - **`list`** — snapshot each workspace and show path health, diff stats, commit info, and age
-- **`remove`** — forget a workspace by name; refuses to remove the current one
+- **`remove`** — forget a workspace and delete its local directory; refuses current workspace
 
 With shell integration installed, `navi switch` also changes your current directory.
 
@@ -52,7 +52,7 @@ navi switch --create feature-auth
 # ... do work ...
 navi switch -
 navi list                       # snapshotted, with diff stats and age
-navi remove feature-auth        # refuses if it's the current workspace
+navi remove feature-auth        # asks before deleting the workspace directory
 ```
 
 ## Install
@@ -106,7 +106,9 @@ navi list --json --compact
 
 navi doctor [--json] [--compact] # diagnose repo, workspace, and shell state
 
-navi remove <workspace>          # forget a workspace (never the current one)
+navi remove <workspace>          # forget a workspace and delete its directory
+navi remove <workspace> --yes    # skip destructive confirmation
+navi remove <workspace> -y
 
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
@@ -130,7 +132,7 @@ Default workspace path template: `../{repo}.{workspace}`
 - `list` snapshots healthy workspaces before rendering so parallel changes are visible
 - `list` reports missing, stale, or not-current workspaces instead of hiding them
 - `list --json` exposes structured `freshness`, `diff`, and `age` fields
-- `remove` is forget-only by default; it does not delete workspace directories
+- `remove` forgets a workspace and deletes its directory after confirmation; `--yes` skips the prompt
 - Supported shells: `bash`, `zsh`
 
 ## Special thanks

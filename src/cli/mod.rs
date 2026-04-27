@@ -48,9 +48,12 @@ enum Commands {
         #[arg(long, help = "Render compact JSON", requires = "json")]
         compact: bool,
     },
-    #[command(about = "Forget a non-current workspace")]
+    #[command(about = "Forget a non-current workspace and delete its directory")]
     Remove {
-        #[arg(help = "Workspace name to forget")]
+        #[arg(long, short = 'y', help = "Skip destructive confirmation")]
+        yes: bool,
+
+        #[arg(help = "Workspace name to remove")]
         workspace: String,
     },
     #[command(about = "Shell integration and future config commands")]
@@ -140,7 +143,9 @@ fn try_run(
                 &path, bin_name, json, compact,
             )?);
         }
-        Commands::Remove { workspace } => commands::remove::run_remove(&path, &workspace)?,
+        Commands::Remove { yes, workspace } => {
+            commands::remove::run_remove(&path, &workspace, yes)?;
+        }
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {
                 ShellCommands::Init { shell } => {
