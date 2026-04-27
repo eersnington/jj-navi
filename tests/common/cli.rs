@@ -69,9 +69,28 @@ pub fn fake_jj_wrapper(
         },
     );
     let script = format!(
-        "#!/bin/sh\ncmd1=\"$1\"\ncmd2=\"$2\"\nif [ \"$cmd1\" = \"--ignore-working-copy\" ]; then\n  cmd1=\"$2\"\n  cmd2=\"$3\"\nfi\nif [ \"$1\" = \"--version\" ]; then\n{}elif [ \"$cmd1\" = \"workspace\" ] && [ \"$cmd2\" = \"list\" ]; then\n{}else\n  exec \"{}\" \"$@\"\nfi\n",
+        concat!(
+            "#!/bin/sh\n",
+            "cmd1=\"$1\"\n",
+            "cmd2=\"$2\"\n",
+            "if [ \"$cmd1\" = \"--ignore-working-copy\" ]; then\n",
+            "  cmd1=\"$2\"\n",
+            "  cmd2=\"$3\"\n",
+            "fi\n",
+            "if [ \"$1\" = \"--version\" ]; then\n",
+            "{}",
+            "elif [ \"$cmd1\" = \"workspace\" ] && [ \"$cmd2\" = \"list\" ]; then\n",
+            "  case \" $* \" in\n",
+            "    *commit_id*) {} ;;\n",
+            "    *) exec \"{}\" \"$@\" ;;\n",
+            "  esac\n",
+            "else\n",
+            "  exec \"{}\" \"$@\"\n",
+            "fi\n",
+        ),
         version_clause,
         workspace_list_clause,
+        real_jj.display(),
         real_jj.display()
     );
 
