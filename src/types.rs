@@ -3,6 +3,7 @@
 use clap::ValueEnum;
 use std::fmt;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 use crate::error::{Error, Result};
 
@@ -272,6 +273,190 @@ pub struct WorkspaceSnapshot {
     pub commit_id: String,
     /// First-line commit description.
     pub message: String,
+    /// Whether this workspace was made current before rendering.
+    pub freshness: WorkspaceFreshnessSnapshot,
+    /// Compact diff statistics for the working-copy commit.
+    pub diff: WorkspaceDiffSnapshot,
+    /// Workspace age metadata.
+    pub age: WorkspaceAgeSnapshot,
+}
+
+/// Whether Navi made a workspace's JJ state current before rendering it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceFreshnessSnapshot {
+    /// Machine-readable freshness state.
+    pub status: WorkspaceFreshnessStatus,
+    /// Optional user-facing reason when freshness could not be established.
+    pub reason: Option<String>,
+}
+
+impl WorkspaceFreshnessSnapshot {
+    /// Return a successful freshness snapshot.
+    #[must_use]
+    pub const fn current() -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::Current,
+            reason: None,
+        }
+    }
+
+    /// Return a freshness snapshot for a skipped missing path.
+    #[must_use]
+    pub fn skipped_missing() -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::SkippedMissing,
+            reason: Some(String::from("workspace path is missing")),
+        }
+    }
+
+    /// Return a freshness snapshot for a skipped stale path.
+    #[must_use]
+    pub fn skipped_stale() -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::SkippedStale,
+            reason: Some(String::from("workspace path is stale")),
+        }
+    }
+
+    /// Return a freshness snapshot for a skipped untrusted path.
+    #[must_use]
+    pub fn skipped_untrusted() -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::SkippedUntrusted,
+            reason: Some(String::from("workspace path is not trusted")),
+        }
+    }
+
+    /// Return a failed freshness snapshot.
+    #[must_use]
+    pub fn failed(reason: impl Into<String>) -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::Failed,
+            reason: Some(reason.into()),
+        }
+    }
+
+    /// Return a timed out freshness snapshot.
+    #[must_use]
+    pub fn timed_out() -> Self {
+        Self {
+            status: WorkspaceFreshnessStatus::TimedOut,
+            reason: Some(String::from(
+                "workspace could not be made current before the deadline",
+            )),
+        }
+    }
+}
+
+impl Default for WorkspaceFreshnessSnapshot {
+    fn default() -> Self {
+        Self::current()
+    }
+}
+
+/// Machine-readable workspace freshness state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceFreshnessStatus {
+    /// Workspace was made current before rendering.
+    Current,
+    /// Workspace path is missing and could not be refreshed.
+    SkippedMissing,
+    /// Workspace path is stale and could not be refreshed safely.
+    SkippedStale,
+    /// Workspace path is not trusted enough to run JJ in it.
+    SkippedUntrusted,
+    /// JJ failed while making the workspace current.
+    Failed,
+    /// JJ exceeded Navi's deadline while making the workspace current.
+    TimedOut,
+}
+
+impl WorkspaceFreshnessStatus {
+    /// Return the machine-readable freshness label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Current => "current",
+            Self::SkippedMissing => "skipped_missing",
+            Self::SkippedStale => "skipped_stale",
+            Self::SkippedUntrusted => "skipped_untrusted",
+            Self::Failed => "failed",
+            Self::TimedOut => "timed_out",
+        }
+    }
+}
+
+/// Compact diff statistics for a workspace's working-copy commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceDiffSnapshot {
+    /// Whether diff statistics were available.
+    pub status: WorkspaceDiffStatus,
+    /// Number of changed files, when known.
+    pub files_changed: Option<u32>,
+    /// Number of inserted lines, when known.
+    pub insertions: Option<u32>,
+    /// Number of deleted lines, when known.
+    pub deletions: Option<u32>,
+}
+
+impl WorkspaceDiffSnapshot {
+    /// Return unknown diff statistics.
+    #[must_use]
+    pub const fn unknown() -> Self {
+        Self {
+            status: WorkspaceDiffStatus::Unknown,
+            files_changed: None,
+            insertions: None,
+            deletions: None,
+        }
+    }
+}
+
+impl Default for WorkspaceDiffSnapshot {
+    fn default() -> Self {
+        Self::unknown()
+    }
+}
+
+/// Whether workspace diff statistics were available.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceDiffStatus {
+    /// Diff statistics were collected.
+    Available,
+    /// Diff statistics could not be collected.
+    Unknown,
+}
+
+impl WorkspaceDiffStatus {
+    /// Return the machine-readable diff status label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Workspace creation metadata used for compact age rendering.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceAgeSnapshot {
+    /// Creation timestamp recorded by Navi, when available.
+    pub created_at: Option<OffsetDateTime>,
+}
+
+impl WorkspaceAgeSnapshot {
+    /// Return an unknown age snapshot.
+    #[must_use]
+    pub const fn unknown() -> Self {
+        Self { created_at: None }
+    }
+}
+
+impl Default for WorkspaceAgeSnapshot {
+    fn default() -> Self {
+        Self::unknown()
+    }
 }
 
 /// Render-ready workspace row for `navi list`.
@@ -293,6 +478,12 @@ pub struct WorkspaceListEntry {
     pub commit_id: String,
     /// First-line commit description.
     pub message: String,
+    /// Whether this workspace was made current before rendering.
+    pub freshness: WorkspaceFreshnessSnapshot,
+    /// Compact diff statistics for the working-copy commit.
+    pub diff: WorkspaceDiffSnapshot,
+    /// Workspace age metadata.
+    pub age: WorkspaceAgeSnapshot,
 }
 
 /// Display state for a workspace path rendered by `navi list`.
@@ -334,6 +525,8 @@ pub enum WorkspaceListStatus {
     Stale,
     /// JJ knows the workspace but `navi` metadata does not.
     JjOnly,
+    /// Workspace could not be made current before rendering.
+    NotCurrent,
 }
 
 impl WorkspaceListStatus {
@@ -346,6 +539,7 @@ impl WorkspaceListStatus {
             Self::Missing => "missing",
             Self::Stale => "stale",
             Self::JjOnly => "jj-only",
+            Self::NotCurrent => "not-current",
         }
     }
 }

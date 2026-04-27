@@ -46,6 +46,9 @@ pub(super) struct OutputTheme {
     inferred_path: Style,
     missing_path: Style,
     stale_path: Style,
+    diff_files: Style,
+    diff_insertions: Style,
+    diff_deletions: Style,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -134,6 +137,19 @@ impl OutputTheme {
                 "\"description placeholder\"",
             ]),
             stale_path: style_from_candidates(&["\"navi.path.stale\"", "conflict"]),
+            diff_files: style_from_candidates(&["\"navi.diff.files\"", "rest", "separator"]),
+            diff_insertions: style_from_candidates(&[
+                "\"navi.diff.insertions\"",
+                "\"diff added token\"",
+                "working_copies",
+                "green",
+            ]),
+            diff_deletions: style_from_candidates(&[
+                "\"navi.diff.deletions\"",
+                "\"diff removed token\"",
+                "conflict",
+                "red",
+            ]),
         }
     }
 }

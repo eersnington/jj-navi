@@ -1,9 +1,20 @@
 use std::ffi::OsString;
+use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
-use crate::types::WorkspaceName;
+use crate::types::{
+    WorkspaceDiffSnapshot, WorkspaceDiffStatus, WorkspaceFreshnessSnapshot, WorkspaceName,
+};
+
+const WORKSPACE_CURRENT_TIMEOUT: Duration = Duration::from_secs(2);
+const WORKSPACE_DIFF_TIMEOUT: Duration = Duration::from_secs(2);
+static TEMP_OUTPUT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct JjWorkspaceListEntry {
@@ -36,6 +47,45 @@ pub(crate) fn config_list(path: &Path, name: &str) -> Option<String> {
     }
 
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+pub(crate) fn snapshot_working_copy_at(path: &Path) -> WorkspaceFreshnessSnapshot {
+    let args = [
+        OsString::from("--quiet"),
+        OsString::from("--no-pager"),
+        OsString::from("util"),
+        OsString::from("snapshot"),
+    ];
+
+    match run_with_timeout(path, &args, WORKSPACE_CURRENT_TIMEOUT) {
+        TimedCommandResult::Success(_) => WorkspaceFreshnessSnapshot::current(),
+        TimedCommandResult::Failure(stderr) => WorkspaceFreshnessSnapshot::failed(
+            meaningful_stderr(&stderr, "jj could not make the workspace current"),
+        ),
+        TimedCommandResult::TimedOut => WorkspaceFreshnessSnapshot::timed_out(),
+        TimedCommandResult::Io(error) => WorkspaceFreshnessSnapshot::failed(format!(
+            "failed to run jj while making the workspace current: {error}"
+        )),
+    }
+}
+
+pub(crate) fn diff_stat_at(path: &Path) -> WorkspaceDiffSnapshot {
+    let args = [
+        OsString::from("--ignore-working-copy"),
+        OsString::from("--color=never"),
+        OsString::from("--no-pager"),
+        OsString::from("diff"),
+        OsString::from("--stat"),
+        OsString::from("-r"),
+        OsString::from("@"),
+    ];
+
+    match run_with_timeout(path, &args, WORKSPACE_DIFF_TIMEOUT) {
+        TimedCommandResult::Success(stdout) => parse_diff_stat(&stdout),
+        TimedCommandResult::Failure(_)
+        | TimedCommandResult::TimedOut
+        | TimedCommandResult::Io(_) => WorkspaceDiffSnapshot::unknown(),
+    }
 }
 
 const MINIMUM_JJ_VERSION: JjVersion = JjVersion {
@@ -79,7 +129,7 @@ impl<'a> JjClient<'a> {
     }
 
     pub(crate) fn current_workspace_name(&self) -> Result<WorkspaceName> {
-        let output = self.run(&[
+        let output = self.run_ignoring_working_copy(&[
             OsString::from("workspace"),
             OsString::from("list"),
             OsString::from("-T"),
@@ -95,7 +145,7 @@ impl<'a> JjClient<'a> {
     }
 
     pub(crate) fn list_workspaces(&self) -> Result<Vec<JjWorkspaceListEntry>> {
-        let output = self.run(&[
+        let output = self.run_ignoring_working_copy(&[
             OsString::from("workspace"),
             OsString::from("list"),
             OsString::from("-T"),
@@ -138,7 +188,7 @@ impl<'a> JjClient<'a> {
             OsString::from("--name"),
             OsString::from(workspace.as_str()),
         ];
-        let output = self.run(&args)?;
+        let output = self.run_ignoring_working_copy(&args)?;
         let root = output.trim();
 
         if root.is_empty() {
@@ -165,6 +215,13 @@ impl<'a> JjClient<'a> {
                 stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
             })
         }
+    }
+
+    fn run_ignoring_working_copy(&self, args: &[OsString]) -> Result<String> {
+        let mut full_args = Vec::with_capacity(args.len() + 1);
+        full_args.push(OsString::from("--ignore-working-copy"));
+        full_args.extend(args.iter().cloned());
+        self.run(&full_args)
     }
 }
 
@@ -196,6 +253,119 @@ fn format_command(args: &[OsString]) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!("jj {rendered}")
+}
+
+enum TimedCommandResult {
+    Success(String),
+    Failure(String),
+    TimedOut,
+    Io(std::io::Error),
+}
+
+fn run_with_timeout(path: &Path, args: &[OsString], timeout: Duration) -> TimedCommandResult {
+    let (stdout_file, stdout_path) = match temp_output_file("stdout") {
+        Ok(output) => output,
+        Err(error) => return TimedCommandResult::Io(error),
+    };
+    let (stderr_file, stderr_path) = match temp_output_file("stderr") {
+        Ok(output) => output,
+        Err(error) => {
+            let _ = fs::remove_file(stdout_path);
+            return TimedCommandResult::Io(error);
+        }
+    };
+
+    let mut child = match Command::new("jj")
+        .args(args)
+        .current_dir(path)
+        .stdout(stdout_file)
+        .stderr(stderr_file)
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = fs::remove_file(stdout_path);
+            let _ = fs::remove_file(stderr_path);
+            return TimedCommandResult::Io(error);
+        }
+    };
+
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = read_temp_output(&stdout_path);
+                let stderr = read_temp_output(&stderr_path);
+                let _ = fs::remove_file(stdout_path);
+                let _ = fs::remove_file(stderr_path);
+
+                return match (status.success(), stdout, stderr) {
+                    (true, Ok(stdout), _) => TimedCommandResult::Success(stdout),
+                    (false, _, Ok(stderr)) => TimedCommandResult::Failure(stderr.trim().to_owned()),
+                    (_, Err(error), _) | (_, _, Err(error)) => TimedCommandResult::Io(error),
+                };
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = fs::remove_file(stdout_path);
+                    let _ = fs::remove_file(stderr_path);
+                    return TimedCommandResult::TimedOut;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => {
+                let _ = fs::remove_file(stdout_path);
+                let _ = fs::remove_file(stderr_path);
+                return TimedCommandResult::Io(error);
+            }
+        }
+    }
+}
+
+fn temp_output_file(kind: &str) -> std::io::Result<(File, PathBuf)> {
+    let id = TEMP_OUTPUT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("jj-navi-{}-{id}-{kind}.tmp", std::process::id()));
+    let file = File::options().write(true).create_new(true).open(&path)?;
+    Ok((file, path))
+}
+
+fn read_temp_output(path: &Path) -> std::io::Result<String> {
+    let mut output = String::new();
+    File::open(path)?.read_to_string(&mut output)?;
+    Ok(output)
+}
+
+fn meaningful_stderr(stderr: &str, fallback: &str) -> String {
+    if stderr.trim().is_empty() {
+        fallback.to_owned()
+    } else {
+        stderr.trim().to_owned()
+    }
+}
+
+fn parse_diff_stat(output: &str) -> WorkspaceDiffSnapshot {
+    let Some(line) = output.lines().rev().find(|line| line.contains(" changed")) else {
+        return WorkspaceDiffSnapshot::unknown();
+    };
+
+    WorkspaceDiffSnapshot {
+        status: WorkspaceDiffStatus::Available,
+        files_changed: number_before(line, " file"),
+        insertions: number_before(line, " insertion"),
+        deletions: number_before(line, " deletion"),
+    }
+}
+
+fn number_before(line: &str, marker: &str) -> Option<u32> {
+    let before_marker = line.split(marker).next()?;
+    before_marker
+        .split(|ch: char| !ch.is_ascii_digit())
+        .rfind(|part| !part.is_empty())?
+        .parse()
+        .ok()
 }
 
 fn parse_jj_version(output: &str) -> Option<JjVersion> {

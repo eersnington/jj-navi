@@ -69,7 +69,7 @@ pub fn fake_jj_wrapper(
         },
     );
     let script = format!(
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n{}elif [ \"$1\" = \"workspace\" ] && [ \"$2\" = \"list\" ]; then\n{}else\n  exec \"{}\" \"$@\"\nfi\n",
+        "#!/bin/sh\ncmd1=\"$1\"\ncmd2=\"$2\"\nif [ \"$cmd1\" = \"--ignore-working-copy\" ]; then\n  cmd1=\"$2\"\n  cmd2=\"$3\"\nfi\nif [ \"$1\" = \"--version\" ]; then\n{}elif [ \"$cmd1\" = \"workspace\" ] && [ \"$cmd2\" = \"list\" ]; then\n{}else\n  exec \"{}\" \"$@\"\nfi\n",
         version_clause,
         workspace_list_clause,
         real_jj.display()
