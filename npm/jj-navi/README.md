@@ -96,26 +96,37 @@ navi remove feature-auth
 
 ```sh
 navi switch <workspace>          # switch to a workspace
+navi cd <workspace>              # alias for switch
 navi switch -                    # switch to previous workspace
 navi switch @                    # switch to current workspace explicitly
 navi switch --create <workspace> # create and switch
+navi switch -c <workspace>
 navi switch --create <workspace> --revision <revset> # create from a revision
+navi switch -c <workspace> -r <revset>
 
 navi list                        # human-readable workspace inventory
+navi ls                          # alias for list
 navi list --json
+navi list -j
 navi list --json --compact
+navi list -j -c
 
 navi doctor [--json] [--compact] # diagnose repo, workspace, and shell state
+navi doctor [-j] [-c]
 
 navi merge --from <workspace>     # merge a workspace into the current workspace
+navi merge -f <workspace>
 navi merge --from <workspace> --into <workspace>
+navi merge -f <workspace> -i <workspace>
 
 navi remove <workspace>          # forget a workspace and delete its directory
+navi rm <workspace>              # alias for remove
 navi remove <workspace> --yes    # skip destructive confirmation
 navi remove <workspace> -y
 
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
+navi config shell install [-s <bash|zsh>]
 ```
 
 ## How it works

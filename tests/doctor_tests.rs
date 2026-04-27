@@ -14,12 +14,13 @@ fn doctor_reports_ok_for_healthy_repo() {
         .current_dir(repo.path())
         .env("HOME", home.path())
         .env("SHELL", "/bin/bash")
-        .args(["doctor"])
+        .args(["doctor", "-j", "-c"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Doctor [ healthy ]"))
-        .stdout(predicate::str::contains("Summary ok"))
-        .stdout(predicate::str::contains("Checks"));
+        .stdout(predicate::str::contains("\n").count(1))
+        .stdout(predicate::str::contains(
+            "\"summary\":{\"errors\":0,\"warnings\":0,\"info\":0}",
+        ));
 }
 
 #[test]

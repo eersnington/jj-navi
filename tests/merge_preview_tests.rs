@@ -67,7 +67,7 @@ fn merge_preview_resolves_explicit_target_workspace() {
 
     command("navi")
         .current_dir(repo.path())
-        .args(["merge", "--from", "feature-a", "--into", "integration"])
+        .args(["merge", "-f", "feature-a", "-i", "integration"])
         .assert()
         .success()
         .stdout(predicate::str::is_empty())

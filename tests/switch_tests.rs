@@ -32,7 +32,7 @@ fn switch_create_creates_workspace() {
 
     command("navi")
         .current_dir(repo.path())
-        .args(["switch", "--create", "feature-auth"])
+        .args(["cd", "-c", "feature-auth"])
         .assert()
         .success()
         .stdout(predicate::eq(format!(
@@ -67,7 +67,7 @@ fn switch_create_with_revision_uses_requested_parent() {
 
     command("navi")
         .current_dir(repo.path())
-        .args(["switch", "--create", "feature-auth", "--revision", "@"])
+        .args(["switch", "-c", "feature-auth", "-r", "@"])
         .assert()
         .success();
 
