@@ -5,6 +5,7 @@ use jj_navi::diagnostics::{
 use jj_navi::output::{
     DIRECTIVE_FILE_ENV_VAR, MANAGED_BLOCK_END, MANAGED_BLOCK_START, escape_shell_single_quotes,
     render_error_message, render_shell_init, render_shell_install_block, render_workspace_table,
+    render_workspace_table_with_width,
 };
 use jj_navi::types::{
     ShellKind, WorkspaceAgeSnapshot, WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot,
@@ -78,6 +79,51 @@ fn renders_table_with_header() {
     assert!(!rendered.contains("../repo.feature-auth [ inferred ]"));
     assert!(rendered.contains("abc123"));
     assert!(rendered.contains("Feature auth work"));
+}
+
+#[test]
+fn renders_table_with_message_as_final_column() {
+    let entries = vec![WorkspaceListEntry {
+        is_current: false,
+        name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+        statuses: vec![WorkspaceListStatus::Ok],
+        path: PathBuf::from("../repo.feature-auth"),
+        path_state: WorkspacePathState::Confirmed,
+        commit_id: String::from("abc123"),
+        message: String::from("Feature auth work"),
+        freshness: WorkspaceFreshnessSnapshot::default(),
+        diff: WorkspaceDiffSnapshot::default(),
+        age: WorkspaceAgeSnapshot::default(),
+    }];
+
+    let rendered = render_workspace_table_with_width(&entries, None);
+    let header = rendered.lines().next().expect("table header");
+    let row = rendered.lines().nth(1).expect("table row");
+
+    assert!(header.contains("commit  age  message"));
+    assert!(row.ends_with("-    Feature auth work"));
+}
+
+#[test]
+fn truncates_final_message_when_terminal_width_is_constrained() {
+    let entries = vec![WorkspaceListEntry {
+        is_current: false,
+        name: WorkspaceName::new("feature-auth").expect("valid workspace"),
+        statuses: vec![WorkspaceListStatus::Ok],
+        path: PathBuf::from("../repo.feature-auth"),
+        path_state: WorkspacePathState::Confirmed,
+        commit_id: String::from("abc123"),
+        message: String::from("Feature auth work with a much longer subject"),
+        freshness: WorkspaceFreshnessSnapshot::default(),
+        diff: WorkspaceDiffSnapshot::default(),
+        age: WorkspaceAgeSnapshot::default(),
+    }];
+
+    let rendered = render_workspace_table_with_width(&entries, Some(1));
+    let row = rendered.lines().nth(1).expect("table row");
+
+    assert!(row.ends_with("-    Feature..."));
+    assert!(!row.contains("much longer subject"));
 }
 
 #[test]
