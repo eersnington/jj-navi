@@ -2,6 +2,19 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.2.2 - 2026-04-27
+
+### Minor
+
+- feat(merge):  implement jj workspace merge flow (#61, @eersnington)
+- feat(cli): add workspace shell completions (#63, @eersnington)
+
+### Patch
+
+- fix(list): keep message as final table column (#58, @eersnington)
+- feat(remove): guard destructive workspace removal (#59, @eersnington)
+- feat(cli): add shorthand flags and aliases (#62, @eersnington)
+
 ## v0.2.1 - 2026-04-27
 
 ### Minor
@@ -74,6 +87,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 
