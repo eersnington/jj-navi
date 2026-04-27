@@ -41,6 +41,30 @@ fn config_shell_install_creates_bashrc_managed_block() {
 }
 
 #[test]
+fn config_shell_init_bash_registers_completion() {
+    command("navi")
+        .args(["config", "shell", "init", "bash"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("COMPLETE=bash command navi"))
+        .stdout(predicates::str::contains(
+            "complete -o nospace -o bashdefault -F _navi_lazy_complete navi",
+        ));
+}
+
+#[test]
+fn config_shell_init_zsh_registers_completion() {
+    command("navi")
+        .args(["config", "shell", "init", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("COMPLETE=zsh command navi"))
+        .stdout(predicates::str::contains(
+            "compdef _navi_lazy_complete navi",
+        ));
+}
+
+#[test]
 fn config_shell_install_creates_zshrc_managed_block() {
     let home = tempfile::TempDir::new().expect("temp home");
     let zshrc = home.path().join(".zshrc");

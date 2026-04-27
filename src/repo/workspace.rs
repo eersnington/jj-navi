@@ -251,6 +251,21 @@ impl NaviWorkspace {
             .collect())
     }
 
+    /// List workspace names directly from JJ for shell completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `jj workspace list` fails.
+    pub(crate) fn workspace_names(&self) -> Result<Vec<WorkspaceName>> {
+        let jj = JjClient::new(&self.workspace_root);
+
+        Ok(jj
+            .list_workspaces()?
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect())
+    }
+
     /// List repo workspaces after making healthy workspaces current.
     ///
     /// # Errors

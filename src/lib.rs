@@ -6,6 +6,7 @@
 
 mod cli;
 mod commands;
+mod completion;
 pub mod diagnostics;
 mod error;
 pub mod output;
