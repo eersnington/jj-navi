@@ -6,7 +6,7 @@ Workspace management for [Jujutsu](https://jj-vcs.github.io/jj/latest/), built f
 
 ## The problem
 
-jj workspaces are great for parallel work, but the workflow around it is cumbersome:
+jj workspaces are great for parallel work, but the workflow around it is quite cumbersome:
 
 - **Paths are unmanaged.** `jj workspace add ../name` works, but paths are arbitrary and easy to forget.
 - **Cross-workspace visibility is stale.** jj snapshots the current workspace when you run a command, but not the others. So `jj log` from one workspace can show outdated commits for the rest — files on disk exist, but jj hasn't recorded them yet.
@@ -32,7 +32,7 @@ repo/
 
 ## Before and after
 
-**Without `jj-navi`** — manual paths, stale visibility, manual cleanup:
+**Without `jj-navi`**
 
 ```sh
 jj workspace add ../repo.feature-auth
@@ -45,7 +45,7 @@ jj workspace forget feature-auth
 rm -rf ../repo.feature-auth     # directory left behind
 ```
 
-**With `jj-navi`** — deterministic paths, fresh visibility, safe cleanup:
+**With `jj-navi`**
 
 ```sh
 navi switch --create feature-auth
@@ -62,7 +62,7 @@ navi remove feature-auth        # refuses if it's the current workspace
 npm install -g jj-navi
 
 # cargo
-cargo install jj-navi --version 0.2.0
+cargo install jj-navi --version 0.2.1
 ```
 
 Binaries: `navi`, `nv`
@@ -110,14 +110,6 @@ navi remove <workspace>          # forget a workspace (never the current one)
 
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
-```
-
-Example `list` output:
-
-```text
-cur  workspace     status  diff        path                     commit        message  age
-@    default       [ ok ]  0           .                        0804444a7a30           -
-     feature-auth  [ ok ]  8f +732 -16 ../repo.feature-auth     a98bd1f8320b  Work     3h
 ```
 
 ## How it works

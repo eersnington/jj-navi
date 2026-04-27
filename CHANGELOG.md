@@ -2,6 +2,19 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.2.1 - 2026-04-27
+
+### Minor
+
+- feat(list): share workspace health model and add json output (#51, @eersnington)
+- feat(switch): add repo-scoped previous-workspace support for switch - (#52, @eersnington)
+- feat(switch): add @ alias for current workspace (#53, @eersnington)
+- feat(list): snapshot workspaces before rendering and show diff stats (#56, @eersnington)
+
+### Patch
+
+- feat: derive navi terminal color styles from jj config (#45, @eersnington)
+
 ## v0.2.0 - 2026-03-16
 
 ### Patch
@@ -61,6 +74,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 
