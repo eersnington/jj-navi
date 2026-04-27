@@ -130,11 +130,7 @@ fn switch_fails_for_forgotten_workspace_even_if_directory_remains() {
     let repo = TempJjRepo::new();
     let workspace_path = repo.create_workspace("feature-auth");
 
-    command("navi")
-        .current_dir(repo.path())
-        .args(["remove", "feature-auth"])
-        .assert()
-        .success();
+    repo.run(&["workspace", "forget", "feature-auth"]);
 
     assert!(workspace_path.is_dir());
 

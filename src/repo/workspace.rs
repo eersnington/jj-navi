@@ -184,6 +184,28 @@ impl NaviWorkspace {
         Ok(workspace)
     }
 
+    /// Resolve a non-current workspace directory that is safe for removal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the workspace is current, missing from `jj`, or its
+    /// directory cannot be validated against the shared repo storage.
+    pub fn resolve_removable_workspace_path(&self, workspace: &WorkspaceName) -> Result<PathBuf> {
+        self.resolve_workspace_forget_target(workspace)?;
+
+        let resolved_path = self.resolve_workspace_path(workspace)?;
+        if !resolved_path.is_switchable() {
+            let display_path = self.display_path_for_switch(&resolved_path.path);
+            return Err(Error::WorkspaceDirectoryUnavailable {
+                workspace: workspace.as_str().to_owned(),
+                path: display_path.display().to_string(),
+            });
+        }
+        self.ensure_workspace_directory_does_not_own_repo_storage(workspace, &resolved_path.path)?;
+
+        Ok(resolved_path.path)
+    }
+
     /// Create a workspace via `jj workspace add`.
     ///
     /// # Errors
@@ -401,6 +423,22 @@ impl NaviWorkspace {
         } else {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
         }
+    }
+
+    fn ensure_workspace_directory_does_not_own_repo_storage(
+        &self,
+        workspace: &WorkspaceName,
+        target_root: &Path,
+    ) -> Result<()> {
+        let target_root = fs::canonicalize(target_root)?;
+        if self.repo_storage_path.starts_with(&target_root) {
+            return Err(Error::CannotRemoveWorkspaceWithSharedRepoStorage {
+                workspace: workspace.as_str().to_owned(),
+                path: target_root.display().to_string(),
+            });
+        }
+
+        Ok(())
     }
 }
 

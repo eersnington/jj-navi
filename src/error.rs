@@ -50,6 +50,34 @@ pub enum Error {
     #[error("error: cannot remove current workspace\nhint: switch to another workspace first")]
     CannotRemoveCurrentWorkspace,
 
+    /// Removing this workspace directory would remove shared repo storage.
+    #[error(
+        "error: cannot remove workspace '{workspace}' because its directory contains shared jj repo storage\nhint: navi remove only deletes workspaces whose directory does not own shared repo storage: {path}"
+    )]
+    CannotRemoveWorkspaceWithSharedRepoStorage {
+        /// Workspace name.
+        workspace: String,
+        /// Directory that owns shared repo storage.
+        path: String,
+    },
+
+    /// The user declined a destructive workspace removal prompt.
+    #[error("error: remove cancelled\nhint: rerun with --yes to skip confirmation")]
+    RemoveCancelled,
+
+    /// Directory deletion failed after the workspace was already forgotten.
+    #[error(
+        "error: failed to delete workspace directory after forgetting workspace '{workspace}'\nhint: jj no longer tracks this workspace and navi metadata was removed; inspect and delete manually: {path}\n{source}"
+    )]
+    WorkspaceDirectoryDeleteAfterForgetFailed {
+        /// Workspace name.
+        workspace: String,
+        /// Directory that could not be deleted.
+        path: String,
+        /// Underlying filesystem error.
+        source: std::io::Error,
+    },
+
     /// The `.jj/repo` pointer file is empty or points to a non-directory.
     #[error("error: invalid repo pointer in {0}")]
     InvalidRepoPointer(PathBuf),
