@@ -43,7 +43,7 @@ pub(crate) struct JjClient<'a> {
 }
 
 pub(crate) fn config_list(path: &Path, name: &str) -> Option<String> {
-    let output = Command::new("jj")
+    let output = jj_command()
         .args([
             OsString::from("--color=never"),
             OsString::from("--no-pager"),
@@ -268,7 +268,7 @@ impl<'a> JjClient<'a> {
     }
 
     fn run_capture(&self, args: &[OsString]) -> Result<JjCommandOutput> {
-        let output = Command::new("jj")
+        let output = jj_command()
             .args(args)
             .current_dir(self.workspace_root)
             .output()?;
@@ -344,7 +344,7 @@ fn run_with_timeout(path: &Path, args: &[OsString], timeout: Duration) -> TimedC
         }
     };
 
-    let mut child = match Command::new("jj")
+    let mut child = match jj_command()
         .args(args)
         .current_dir(path)
         .stdout(stdout_file)
@@ -392,6 +392,15 @@ fn run_with_timeout(path: &Path, args: &[OsString], timeout: Duration) -> TimedC
             }
         }
     }
+}
+
+fn jj_command() -> Command {
+    let mut command = Command::new("jj");
+    command
+        .env_remove("COMPLETE")
+        .env_remove("_CLAP_COMPLETE_INDEX")
+        .env_remove("_CLAP_IFS");
+    command
 }
 
 fn temp_output_file(kind: &str) -> std::io::Result<(File, PathBuf)> {

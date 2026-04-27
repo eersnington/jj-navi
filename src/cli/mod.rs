@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::commands;
+use crate::completion;
 use crate::output::render_error_message;
 use crate::types::ShellKind;
 
@@ -34,7 +35,10 @@ enum Commands {
         )]
         revision: Option<String>,
 
-        #[arg(help = "Workspace name, or '-' for the previous workspace")]
+        #[arg(
+            help = "Workspace name, or '-' for the previous workspace",
+            add = completion::workspace_value_completer()
+        )]
         workspace: String,
     },
     #[command(
@@ -64,18 +68,24 @@ enum Commands {
         #[arg(long, short = 'y', help = "Skip destructive confirmation")]
         yes: bool,
 
-        #[arg(help = "Workspace name to remove")]
+        #[arg(help = "Workspace name to remove", add = completion::workspace_value_completer())]
         workspace: String,
     },
     #[command(about = "Merge work from another JJ workspace")]
     Merge {
-        #[arg(long, short = 'f', help = "Source workspace to merge from")]
+        #[arg(
+            long,
+            short = 'f',
+            help = "Source workspace to merge from",
+            add = completion::workspace_value_completer()
+        )]
         from: String,
 
         #[arg(
             long,
             short = 'i',
-            help = "Target workspace to merge into; defaults to current"
+            help = "Target workspace to merge into; defaults to current",
+            add = completion::workspace_value_completer()
         )]
         into: Option<String>,
     },
@@ -136,6 +146,10 @@ impl From<crate::Error> for CliError {
 /// Run the CLI binary entrypoint with the provided binary name and argv.
 #[must_use]
 pub fn run(bin_name: &'static str, args: impl IntoIterator<Item = OsString>) -> ExitCode {
+    if completion::maybe_handle_env_completion(bin_name) {
+        return ExitCode::SUCCESS;
+    }
+
     match try_run(bin_name, args) {
         Ok(exit_code) => exit_code,
         Err(CliError::Clap(error)) => {
@@ -202,6 +216,6 @@ fn parse(
     Cli::from_arg_matches(&matches)
 }
 
-fn build_command() -> clap::Command {
+pub(crate) fn build_command() -> clap::Command {
     Cli::command().styles(crate::output::clap_styles())
 }
