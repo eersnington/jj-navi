@@ -1,8 +1,11 @@
 use pathdiff::diff_paths;
 use serde::Serialize;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::types::{
-    WorkspaceListEntry, WorkspaceListStatus, WorkspacePathState, WorkspaceSnapshot,
+    WorkspaceDiffSnapshot, WorkspaceDiffStatus, WorkspaceListEntry, WorkspaceListStatus,
+    WorkspacePathState, WorkspaceSnapshot,
 };
 
 use super::{
@@ -16,8 +19,10 @@ use std::path::Path;
 const CURRENT_HEADER: &str = "cur";
 const WORKSPACE_HEADER: &str = "workspace";
 const STATUS_HEADER: &str = "status";
+const DIFF_HEADER: &str = "diff";
 const PATH_HEADER: &str = "path";
 const COMMIT_HEADER: &str = "commit";
+const AGE_HEADER: &str = "age";
 
 /// Render a table of workspaces for `navi list`.
 #[must_use]
@@ -28,9 +33,11 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
             is_current: entry.is_current,
             name: render_workspace_name(entry.name.as_str(), entry.is_current),
             status: render_workspace_status(entry),
+            diff: render_workspace_diff(&entry.diff),
             path: render_workspace_path(entry),
             commit_id: render_commit_id(entry.commit_id.as_str()),
             message: entry.message.as_str(),
+            age: render_workspace_age(entry.age.created_at),
         })
         .collect::<Vec<_>>();
 
@@ -50,17 +57,27 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         .iter()
         .map(|entry| entry.commit_id.visible_len)
         .fold(COMMIT_HEADER.len(), usize::max);
+    let diff_width = rendered_entries
+        .iter()
+        .map(|entry| entry.diff.visible_len)
+        .fold(DIFF_HEADER.len(), usize::max);
+    let age_width = rendered_entries
+        .iter()
+        .map(|entry| entry.age.visible_len)
+        .fold(AGE_HEADER.len(), usize::max);
 
     let mut output = String::new();
     writeln!(
         output,
-        "{}  {}  {}  {}  {}  {}",
+        "{}  {}  {}  {}  {}  {}  {}  {}",
         style_table_header(&format!("{CURRENT_HEADER:<3}")),
         style_table_header(&format!("{WORKSPACE_HEADER:<workspace_width$}")),
         style_table_header(&format!("{STATUS_HEADER:<status_width$}")),
+        style_table_header(&format!("{DIFF_HEADER:<diff_width$}")),
         style_table_header(&format!("{PATH_HEADER:<path_width$}")),
         style_table_header(&format!("{COMMIT_HEADER:<commit_width$}")),
         style_table_header("message"),
+        style_table_header(&format!("{AGE_HEADER:<age_width$}")),
     )
     .expect("write table header");
 
@@ -68,7 +85,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
         let current_marker = if entry.is_current { "@" } else { "" };
         writeln!(
             output,
-            "{}  {}  {}  {}  {}  {}",
+            "{}  {}  {}  {}  {}  {}  {}  {}",
             pad_visible(current_marker, current_marker.len(), CURRENT_HEADER.len()),
             pad_visible(
                 &entry.name.rendered,
@@ -80,6 +97,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
                 entry.status.visible_len,
                 status_width
             ),
+            pad_visible(&entry.diff.rendered, entry.diff.visible_len, diff_width),
             pad_visible(&entry.path.rendered, entry.path.visible_len, path_width),
             pad_visible(
                 &entry.commit_id.rendered,
@@ -87,6 +105,7 @@ pub fn render_workspace_table(entries: &[WorkspaceListEntry]) -> String {
                 commit_width
             ),
             entry.message,
+            pad_visible(&entry.age.rendered, entry.age.visible_len, age_width),
         )
         .expect("write table row");
     }
@@ -133,6 +152,24 @@ pub fn render_workspace_list_json(
                         .map(|status| status.label())
                         .collect(),
                     metadata_status: snapshot.health.metadata_status.label(),
+                },
+                freshness: WorkspaceFreshnessJson {
+                    status: snapshot.freshness.status.label(),
+                    reason: snapshot.freshness.reason.as_deref(),
+                },
+                age: WorkspaceAgeJson {
+                    created_at: snapshot
+                        .age
+                        .created_at
+                        .and_then(|created_at| created_at.format(&Rfc3339).ok()),
+                    display: snapshot.age.created_at.map(format_workspace_age),
+                },
+                diff: WorkspaceDiffJson {
+                    status: snapshot.diff.status.label(),
+                    files_changed: snapshot.diff.files_changed,
+                    insertions: snapshot.diff.insertions,
+                    deletions: snapshot.diff.deletions,
+                    display: render_diff_plain(&snapshot.diff),
                 },
             })
             .collect(),
@@ -187,6 +224,77 @@ fn render_workspace_path(entry: &WorkspaceListEntry) -> RenderedCell {
     }
 }
 
+fn render_workspace_diff(diff: &WorkspaceDiffSnapshot) -> RenderedCell {
+    let plain = render_diff_plain(diff);
+    let rendered = render_diff_styled(diff, &plain);
+
+    RenderedCell {
+        rendered,
+        visible_len: plain.len(),
+    }
+}
+
+fn render_diff_styled(diff: &WorkspaceDiffSnapshot, plain: &str) -> String {
+    if diff.status == WorkspaceDiffStatus::Unknown || plain == "0" {
+        return plain.to_owned();
+    }
+
+    let files_changed = diff.files_changed.unwrap_or(0);
+    let insertions = diff.insertions.unwrap_or(0);
+    let deletions = diff.deletions.unwrap_or(0);
+
+    format!(
+        "{} {} {}",
+        styled_stdout_text(&format!("{files_changed}f"), theme().diff_files),
+        styled_stdout_text(&format!("+{insertions}"), theme().diff_insertions),
+        styled_stdout_text(&format!("-{deletions}"), theme().diff_deletions),
+    )
+}
+
+fn render_diff_plain(diff: &WorkspaceDiffSnapshot) -> String {
+    if diff.status == WorkspaceDiffStatus::Unknown {
+        return String::from("unknown");
+    }
+
+    let files_changed = diff.files_changed.unwrap_or(0);
+    let insertions = diff.insertions.unwrap_or(0);
+    let deletions = diff.deletions.unwrap_or(0);
+
+    if files_changed == 0 && insertions == 0 && deletions == 0 {
+        return String::from("0");
+    }
+
+    format!("{files_changed}f +{insertions} -{deletions}")
+}
+
+fn render_workspace_age(created_at: Option<OffsetDateTime>) -> RenderedCell {
+    let plain = created_at.map_or_else(|| String::from("-"), format_workspace_age);
+
+    RenderedCell {
+        rendered: plain.clone(),
+        visible_len: plain.len(),
+    }
+}
+
+fn format_workspace_age(created_at: OffsetDateTime) -> String {
+    let elapsed = OffsetDateTime::now_utc() - created_at;
+    let seconds = elapsed.whole_seconds().max(0);
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+    let days = hours / 24;
+    let years = days / 365;
+
+    if years > 0 {
+        format!("{years}y")
+    } else if days > 0 {
+        format!("{days}d")
+    } else if hours > 0 {
+        format!("{hours}h")
+    } else {
+        format!("{}m", minutes.max(1))
+    }
+}
+
 fn render_workspace_name(name: &str, is_current: bool) -> RenderedCell {
     RenderedCell {
         rendered: style_workspace_name(name, is_current),
@@ -209,6 +317,7 @@ fn render_status_badge(status: WorkspaceListStatus) -> String {
         WorkspaceListStatus::Missing => style_list_badge(label, theme().missing_badge),
         WorkspaceListStatus::Stale => style_list_badge(label, theme().stale_badge),
         WorkspaceListStatus::JjOnly => style_list_badge(label, theme().jj_only_badge),
+        WorkspaceListStatus::NotCurrent => style_list_badge(label, theme().warning_badge),
     };
 
     if status == WorkspaceListStatus::Inferred && hyperlink_enabled() {
@@ -222,9 +331,11 @@ struct RenderedWorkspaceEntry<'a> {
     is_current: bool,
     name: RenderedCell,
     status: RenderedCell,
+    diff: RenderedCell,
     path: RenderedCell,
     commit_id: RenderedCell,
     message: &'a str,
+    age: RenderedCell,
 }
 
 struct RenderedCell {
@@ -245,6 +356,9 @@ struct WorkspaceJsonEntry<'a> {
     message: &'a str,
     path: WorkspacePathJson,
     health: WorkspaceHealthJson<'a>,
+    freshness: WorkspaceFreshnessJson<'a>,
+    age: WorkspaceAgeJson,
+    diff: WorkspaceDiffJson,
 }
 
 #[derive(Serialize)]
@@ -259,4 +373,25 @@ struct WorkspacePathJson {
 struct WorkspaceHealthJson<'a> {
     statuses: Vec<&'a str>,
     metadata_status: &'static str,
+}
+
+#[derive(Serialize)]
+struct WorkspaceFreshnessJson<'a> {
+    status: &'static str,
+    reason: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct WorkspaceAgeJson {
+    created_at: Option<String>,
+    display: Option<String>,
+}
+
+#[derive(Serialize)]
+struct WorkspaceDiffJson {
+    status: &'static str,
+    files_changed: Option<u32>,
+    insertions: Option<u32>,
+    deletions: Option<u32>,
+    display: String,
 }

@@ -80,8 +80,6 @@ navi switch --create feature-one
 navi switch --create feature-two
 navi switch -
 navi list
-navi snapshot-all
-navi overview
 navi merge plan --from feature-two
 navi cleanup plan
 ```
@@ -89,69 +87,49 @@ navi cleanup plan
 Mental model:
 
 1. create or jump with `switch`
-2. inspect workspace inventory with `list`
-3. refresh working-copy state explicitly with `snapshot-all`
-4. inspect work in flight with `overview`
-5. merge deliberately with `merge plan/apply`
-6. clean up safely with `cleanup plan/apply` or `remove`
-7. diagnose degraded state with `doctor` only when needed
+2. inspect workspace inventory and active work with `list`
+3. merge deliberately with `merge plan/apply`
+4. clean up safely with `cleanup plan/apply` or `remove`
+5. diagnose degraded state with `doctor` only when needed
 
 ## Near-Term Roadmap
 
-### 1. Explicit Snapshots
+### 1. Fresh Workspace List
 
-Add:
+Keep:
 
 ```sh
-navi snapshot-all [--json] [--compact]
+navi list [--json] [--compact]
 ```
 
 Purpose:
 
-- solve stale cross-workspace visibility before overview or merge decisions
-- make the action explicit instead of hiding mutation inside `list`
-
-Behavior:
-
-- run `jj snapshot` in every switchable workspace
-- skip missing or stale workspace paths and report them
-- return non-zero if any snapshot fails
-- include machine-readable output for scripts and agents
-
-### 2. Work-In-Flight Overview
-
-Add:
-
-```sh
-navi overview [--json] [--compact] [--snapshot]
-```
-
-Purpose:
-
-- answer “what work is active across my workspaces?”
+- answer “what work is active across my workspaces?” without requiring users to know JJ snapshot mechanics
+- solve stale cross-workspace visibility before merge decisions
 - provide both human triage and scriptable JSON
 
-Human output should be compact and scan-friendly. Initial fields:
+Human output should be compact and scan-friendly. Fields:
 
 - current marker
 - workspace name
 - path health
+- currentness health for workspaces that could not be made current
+- compact diff summary
 - commit id
-- change id if available
 - first-line description
-- empty/non-empty state
-- conflict state
-- diff summary if cheap and reliable
+- workspace age when created by Navi
 
 JSON output should expose the same concepts with stable field names.
 
 Rules:
 
-- default `overview` should not mutate state
-- `--snapshot` may run snapshot logic first
+- `list` makes healthy workspace state current before rendering by running `jj util snapshot` internally in each switchable workspace
+- snapshot mechanics are not exposed as command UX
+- `list` does not run `jj workspace update-stale` or auto-repair workspace files
+- `list` does not block forever on one workspace; degraded currentness remains visible per row
 - stale or missing workspaces should remain visible instead of failing the whole command
 
-### 3. Safe Cleanup
+### 2. Safe Cleanup
 
 Add:
 
@@ -181,7 +159,7 @@ Rules:
 - directory deletion requires `--delete-dirs` and confirmation or `--yes`
 - `jj abandon` is out of scope for the first cleanup version
 
-### 4. Guided Merge
+### 3. Guided Merge
 
 Add:
 
@@ -199,7 +177,7 @@ Rules:
 
 - source workspace is always explicit
 - target defaults to the current workspace unless `--into` is provided
-- `plan` prints the proposed JJ operation without mutation
+- `plan` prints the proposed JJ operation without applying the merge
 - `apply` runs only after path health and source/target checks pass
 - stale, missing, ambiguous, or conflicted states stop with guidance instead of guessing
 
@@ -217,7 +195,7 @@ Reasoning:
 Possible later compromise:
 
 - user-authored workspace notes such as URL, port, or label
-- display-only metadata in `overview`
+- display-only metadata in `list`
 - no automatic allocation or env mutation
 
 ## Acceptance Criteria
@@ -229,17 +207,17 @@ Possible later compromise:
 3. `switch -` returns to the previously recorded workspace.
 4. `switch @` resolves the current workspace explicitly.
 5. `list` shows workspace inventory and degraded path state.
-6. `doctor` explains degraded repo, workspace, and shell state.
-7. `remove` refuses to remove the current workspace.
+6. `list` makes healthy workspaces current before rendering active work.
+7. `list` shows compact diff statistics and workspace age when known.
+8. `doctor` explains degraded repo, workspace, and shell state.
+9. `remove` refuses to remove the current workspace.
 
 ### New Scope
 
-1. `snapshot-all` snapshots every switchable workspace and reports skipped workspaces.
-2. `overview` shows work-in-flight state in human and JSON output.
-3. `cleanup plan` identifies cleanup candidates without mutation.
-4. `cleanup apply` performs only explicit, confirmed cleanup actions.
-5. `merge plan` reports source, target, and intended JJ operation without mutation.
-6. `merge apply` refuses stale, missing, or ambiguous paths before running JJ operations.
+1. `cleanup plan` identifies cleanup candidates without mutation.
+2. `cleanup apply` performs only explicit, confirmed cleanup actions.
+3. `merge plan` reports source, target, and intended JJ operation without applying it.
+4. `merge apply` refuses stale, missing, or ambiguous paths before running JJ operations.
 
 ## Testing Priorities
 
@@ -249,9 +227,10 @@ Priority coverage:
 
 - workspace creation and switching
 - degraded path recovery and reporting
-- list and overview human output
-- list and overview JSON output
-- snapshot-all success, skipped workspace reporting, and failure reporting
+- fresh list human output
+- fresh list JSON output
+- list currentness, skipped workspace reporting, and failure reporting
+- list diff summary and workspace age
 - cleanup plan read-only behavior
 - cleanup apply safeguards
 - merge plan read-only behavior
@@ -265,11 +244,10 @@ Docs should explain the product in this order:
 1. what `jj-navi` is
 2. the core switch/list workflow
 3. shell integration
-4. explicit snapshots
-5. work-in-flight overview
-6. safe cleanup
-7. guided merge
-8. doctor and degraded-state recovery
+4. fresh cross-workspace list behavior
+5. safe cleanup
+6. guided merge
+7. doctor and degraded-state recovery
 
 ## References
 

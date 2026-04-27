@@ -7,8 +7,8 @@ use jj_navi::output::{
     render_error_message, render_shell_init, render_shell_install_block, render_workspace_table,
 };
 use jj_navi::types::{
-    ShellKind, WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState,
-    WorkspaceTemplate,
+    ShellKind, WorkspaceAgeSnapshot, WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot,
+    WorkspaceListEntry, WorkspaceListStatus, WorkspaceName, WorkspacePathState, WorkspaceTemplate,
 };
 use std::path::PathBuf;
 
@@ -64,6 +64,9 @@ fn renders_table_with_header() {
         path_state: WorkspacePathState::Inferred,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
+        freshness: WorkspaceFreshnessSnapshot::default(),
+        diff: WorkspaceDiffSnapshot::default(),
+        age: WorkspaceAgeSnapshot::default(),
     }];
 
     let rendered = render_workspace_table(&entries);
@@ -88,6 +91,9 @@ fn renders_workspace_table_for_current_workspace() {
             path_state: WorkspacePathState::Confirmed,
             commit_id: String::from("abc123"),
             message: String::from("Current work"),
+            freshness: WorkspaceFreshnessSnapshot::default(),
+            diff: WorkspaceDiffSnapshot::default(),
+            age: WorkspaceAgeSnapshot::default(),
         },
         WorkspaceListEntry {
             is_current: false,
@@ -97,6 +103,9 @@ fn renders_workspace_table_for_current_workspace() {
             path_state: WorkspacePathState::Inferred,
             commit_id: String::from("def456"),
             message: String::from("Feature auth work"),
+            freshness: WorkspaceFreshnessSnapshot::default(),
+            diff: WorkspaceDiffSnapshot::default(),
+            age: WorkspaceAgeSnapshot::default(),
         },
     ];
 
@@ -138,6 +147,9 @@ fn renders_missing_status_without_inferred_status_for_non_inferred_path() {
         path_state: WorkspacePathState::Missing,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
+        freshness: WorkspaceFreshnessSnapshot::default(),
+        diff: WorkspaceDiffSnapshot::default(),
+        age: WorkspaceAgeSnapshot::default(),
     }];
 
     let rendered = render_workspace_table(&entries);
@@ -157,6 +169,9 @@ fn renders_combined_workspace_statuses() {
         path_state: WorkspacePathState::Missing,
         commit_id: String::from("abc123"),
         message: String::from("Feature auth work"),
+        freshness: WorkspaceFreshnessSnapshot::default(),
+        diff: WorkspaceDiffSnapshot::default(),
+        age: WorkspaceAgeSnapshot::default(),
     }];
 
     let rendered = render_workspace_table(&entries);

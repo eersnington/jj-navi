@@ -127,6 +127,13 @@ impl WorkspaceMetadataStore {
             .and_then(|record| record.path.clone())
     }
 
+    pub(crate) fn workspace_created_at(&self, workspace: &WorkspaceName) -> Option<OffsetDateTime> {
+        self.records
+            .iter()
+            .find(|record| record.name == *workspace)
+            .map(|record| record.created_at)
+    }
+
     pub(crate) fn entries(&self) -> Vec<WorkspaceMetadataEntry> {
         self.records
             .iter()

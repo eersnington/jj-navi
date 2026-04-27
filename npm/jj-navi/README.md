@@ -4,9 +4,24 @@
 
 Workspace management for [Jujutsu](https://jj-vcs.github.io/jj/latest/), built for parallel human and AI agent workflows.
 
-Make JJ workspaces easier to create, switch, inspect, and clean up with predictable paths and optional shell integration.
+## The problem
 
-## What it does
+jj workspaces are great for parallel work, but the workflow around it is cumbersome:
+
+- **Paths are unmanaged.** `jj workspace add ../name` works, but paths are arbitrary and easy to forget.
+- **Cross-workspace visibility is stale.** jj snapshots the current workspace when you run a command, but not the others. So `jj log` from one workspace can show outdated commits for the rest — files on disk exist, but jj hasn't recorded them yet.
+- **Cleanup is awkward.** Forgetting a workspace does not delete its directory, and deleting a directory does not forget the workspace. There is also no guard against removing the one you are currently in.
+- **Switching doesn't switch your shell.** `jj workspace` changes the working copy, not your terminal's current directory.
+
+## What `jj-navi` does
+
+`jj-navi` manages workspace lifecycle: naming, paths, switching, visibility, and cleanup.
+
+- **`switch --create`** — go to a workspace, creating it at a deterministic path if it doesn't exist
+- **`list`** — snapshot each workspace and show path health, diff stats, commit info, and age
+- **`remove`** — forget a workspace by name; refuses to remove the current one
+
+With shell integration installed, `navi switch` also changes your current directory.
 
 ```text
 repo/
@@ -15,7 +30,30 @@ repo/
 └── repo.fix-api         navi switch --create fix-api
 ```
 
-`jj-navi` makes parallel workspace work feel simpler and more predictable. Creating a workspace is just switching with `--create`.
+## Before and after
+
+**Without `jj-navi`** — manual paths, stale visibility, manual cleanup:
+
+```sh
+jj workspace add ../repo.feature-auth
+cd ../repo.feature-auth
+# ... do work ...
+cd ../repo
+jj log                          # stale view of other workspaces
+jj workspace list               # names only
+jj workspace forget feature-auth
+rm -rf ../repo.feature-auth     # directory left behind
+```
+
+**With `jj-navi`** — deterministic paths, fresh visibility, safe cleanup:
+
+```sh
+navi switch --create feature-auth
+# ... do work ...
+navi switch -
+navi list                       # snapshotted, with diff stats and age
+navi remove feature-auth        # refuses if it's the current workspace
+```
 
 ## Install
 
@@ -27,27 +65,21 @@ npm install -g jj-navi
 cargo install jj-navi --version 0.2.0
 ```
 
-Binary names:
+Binaries: `navi`, `nv`
 
-- `navi`
-- `nv`
-
-Minimum supported `jj`: `0.39.0`
-Minimum supported Node.js for npm install: `24`
-
+Minimum `jj`: `0.39.0`  
+Minimum Node.js (tested): `24`
 
 ## Shell integration
 
-Install shell integration once if you want `navi switch ...` to change directories directly.
+Install once so `navi switch` can update your shell's current directory:
 
 ```sh
 navi config shell install --shell zsh
 source ~/.zshrc
 ```
 
-Pick the shell you actually use: `bash` or `zsh`.
-
-`navi config shell install` adds a managed block to your shell rc file so `switch` can update your current shell instead of only printing the destination path.
+Supports `bash` and `zsh`. This adds a managed block to your shell rc file.
 
 ## Quick start
 
@@ -62,55 +94,62 @@ navi remove feature-auth
 ## Commands
 
 ```sh
-navi switch <workspace>
-navi switch -
-navi switch @
-navi switch --create <workspace>
+navi switch <workspace>          # switch to a workspace
+navi switch -                    # switch to previous workspace
+navi switch @                    # switch to current workspace explicitly
+navi switch --create <workspace> # create and switch
 navi switch --create <workspace> --revision <revset>
-navi list
+
+navi list                        # human-readable workspace inventory
 navi list --json
-navi list --full
-navi doctor [--json] [--compact]
-navi remove <workspace>
+navi list --json --compact
+
+navi doctor [--json] [--compact] # diagnose repo, workspace, and shell state
+
+navi remove <workspace>          # forget a workspace (never the current one)
+
 navi config shell init <bash|zsh>
 navi config shell install [--shell <bash|zsh>]
 ```
 
-## Repo config
+Example `list` output:
 
-Repo-scoped config and metadata live in shared Jujutsu storage:
+```text
+cur  workspace     status  diff        path                     commit        message  age
+@    default       [ ok ]  0           .                        0804444a7a30           -
+     feature-auth  [ ok ]  8f +732 -16 ../repo.feature-auth     a98bd1f8320b  Work     3h
+```
+
+## How it works
+
+Config and metadata live inside shared Jujutsu storage:
 
 ```text
 .jj/repo/navi/config.toml
 .jj/repo/navi/workspaces.toml
 ```
 
-Default workspace path template:
-
-```text
-../{repo}.{workspace}
-```
+Default workspace path template: `../{repo}.{workspace}`
 
 ## Notes
 
-- `switch` can recover from missing JJ workspace-path records when `navi` can validate a fallback path
-- `switch` only warns when it had to use a weaker template-based fallback
-- `remove` requires an explicit workspace name and refuses to remove the current workspace
+- `switch` can recover from missing jj workspace-path records when it can validate a fallback path
+- `switch` warns when it falls back to template-based path resolution
+- `list` snapshots healthy workspaces before rendering so parallel changes are visible
+- `list` reports missing, stale, or not-current workspaces instead of hiding them
+- `list --json` exposes structured `freshness`, `diff`, and `age` fields
 - `remove` is forget-only by default; it does not delete workspace directories
-- supported shells today: `bash`, `zsh`
-
-## Maintainer notes
-
-Release and `xtask` docs live in `xtask/README.md`.
+- Supported shells: `bash`, `zsh`
 
 ## Special thanks
 
-This project was inspired by:
+Inspired by:
 
-- [Worktrunk](https://github.com/max-sixty/worktrunk) - Worktrunk is a CLI for Git worktree management, designed for parallel AI agent workflows.
-- [jj-ryu](https://github.com/dmmulroy/jj-ryu) - Stacked PRs for Jujutsu. Push bookmark stacks to GitHub and GitLab as chained pull requests.
+- [Worktrunk](https://github.com/max-sixty/worktrunk) — Git worktree management for parallel AI agent workflows
+- [jj-ryu](https://github.com/dmmulroy/jj-ryu) — Stacked PRs for Jujutsu
 
-## Art Credits
+## Art credits
+
 - [BoTW Link Pixel Art](https://www.reddit.com/r/zelda/comments/piy10r/botw_oc_hero_of_the_wild_pixel_art/)
 
 ## License

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -5,8 +6,9 @@ use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
 use crate::types::{
-    RepoConfig, WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceMetadataStatus,
-    WorkspaceName, WorkspacePathSnapshot, WorkspaceSnapshot,
+    RepoConfig, WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot, WorkspaceFreshnessStatus,
+    WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceListStatus, WorkspaceMetadataStatus,
+    WorkspaceName, WorkspacePathSnapshot, WorkspacePathState, WorkspaceSnapshot,
 };
 
 use super::config::{ensure_repo_config, load_repo_config};
@@ -217,7 +219,7 @@ impl NaviWorkspace {
     /// Returns an error if `jj workspace list` fails or if a workspace name is
     /// invalid for navi.
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceListEntry>> {
-        let snapshots = self.list_workspace_snapshots()?;
+        let snapshots = self.list_fresh_workspace_snapshots()?;
 
         Ok(snapshots
             .iter()
@@ -225,15 +227,46 @@ impl NaviWorkspace {
             .collect())
     }
 
-    /// List repo workspaces as shared snapshots.
+    /// List repo workspaces after making healthy workspaces current.
     ///
     /// # Errors
     ///
     /// Returns an error if `jj workspace list` fails or if a workspace name is
     /// invalid for navi.
-    pub(crate) fn list_workspace_snapshots(&self) -> Result<Vec<WorkspaceSnapshot>> {
-        let jj = JjClient::new(&self.workspace_root);
+    pub(crate) fn list_fresh_workspace_snapshots(&self) -> Result<Vec<WorkspaceSnapshot>> {
         let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
+        let mut snapshots = self.discover_workspace_snapshots_with_metadata(&metadata)?;
+        let freshness = snapshots
+            .iter()
+            .map(|snapshot| {
+                let freshness = match snapshot.path.state {
+                    WorkspacePathState::Confirmed | WorkspacePathState::Inferred => {
+                        super::jj::snapshot_working_copy_at(&snapshot.path.path)
+                    }
+                    WorkspacePathState::Missing => WorkspaceFreshnessSnapshot::skipped_missing(),
+                    WorkspacePathState::Stale => WorkspaceFreshnessSnapshot::skipped_stale(),
+                };
+                (snapshot.name.clone(), freshness)
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        self.refresh_workspace_targets(&mut snapshots)?;
+        for snapshot in &mut snapshots {
+            let freshness = freshness
+                .get(&snapshot.name)
+                .cloned()
+                .unwrap_or_else(WorkspaceFreshnessSnapshot::skipped_untrusted);
+            apply_workspace_details(snapshot, &metadata, freshness);
+        }
+
+        Ok(snapshots)
+    }
+
+    fn discover_workspace_snapshots_with_metadata(
+        &self,
+        metadata: &WorkspaceMetadataStore,
+    ) -> Result<Vec<WorkspaceSnapshot>> {
+        let jj = JjClient::new(&self.workspace_root);
         collect_workspace_snapshots(
             WorkspaceSnapshotInputs {
                 workspace_root: &self.workspace_root,
@@ -241,12 +274,31 @@ impl NaviWorkspace {
                 current_workspace: Some(&self.current_workspace),
                 config: &self.config,
                 repo_name: &self.repo_name,
-                metadata: &metadata,
+                metadata,
                 metadata_is_valid: true,
                 allow_switchable_path: true,
             },
             &jj,
         )
+    }
+
+    fn refresh_workspace_targets(&self, snapshots: &mut [WorkspaceSnapshot]) -> Result<()> {
+        let jj = JjClient::new(&self.workspace_root);
+        let targets = jj
+            .list_workspaces()?
+            .into_iter()
+            .map(|entry| (entry.name.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
+
+        for snapshot in snapshots {
+            if let Some(entry) = targets.get(&snapshot.name) {
+                snapshot.is_current = entry.is_current;
+                snapshot.commit_id.clone_from(&entry.commit_id);
+                snapshot.message.clone_from(&entry.message);
+            }
+        }
+
+        Ok(())
     }
 
     fn workspace_snapshot(
@@ -270,6 +322,9 @@ impl NaviWorkspace {
             },
             commit_id: entry.commit_id,
             message: entry.message,
+            freshness: WorkspaceFreshnessSnapshot::current(),
+            diff: WorkspaceDiffSnapshot::unknown(),
+            age: crate::types::WorkspaceAgeSnapshot::unknown(),
         }
     }
 
@@ -288,6 +343,9 @@ impl NaviWorkspace {
             path_state: snapshot.path.state,
             commit_id: snapshot.commit_id.clone(),
             message: snapshot.message.clone(),
+            freshness: snapshot.freshness.clone(),
+            diff: snapshot.diff.clone(),
+            age: snapshot.age.clone(),
         }
     }
 
@@ -344,6 +402,48 @@ impl NaviWorkspace {
             Err(Error::WorkspaceNotFound(workspace.as_str().to_owned()))
         }
     }
+}
+
+fn apply_workspace_details(
+    snapshot: &mut WorkspaceSnapshot,
+    metadata: &WorkspaceMetadataStore,
+    freshness: WorkspaceFreshnessSnapshot,
+) {
+    let diff = if freshness.status == WorkspaceFreshnessStatus::Current
+        && matches!(
+            snapshot.path.state,
+            WorkspacePathState::Confirmed | WorkspacePathState::Inferred
+        ) {
+        super::jj::diff_stat_at(&snapshot.path.path)
+    } else {
+        WorkspaceDiffSnapshot::unknown()
+    };
+
+    if matches!(
+        freshness.status,
+        WorkspaceFreshnessStatus::Failed | WorkspaceFreshnessStatus::TimedOut
+    ) {
+        snapshot
+            .health
+            .statuses
+            .retain(|status| *status != WorkspaceListStatus::Ok);
+        if !snapshot
+            .health
+            .statuses
+            .contains(&WorkspaceListStatus::NotCurrent)
+        {
+            snapshot
+                .health
+                .statuses
+                .push(WorkspaceListStatus::NotCurrent);
+        }
+    }
+
+    snapshot.freshness = freshness;
+    snapshot.diff = diff;
+    snapshot.age = crate::types::WorkspaceAgeSnapshot {
+        created_at: metadata.workspace_created_at(&snapshot.name),
+    };
 }
 
 pub(crate) fn collect_workspace_snapshots(
