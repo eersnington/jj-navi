@@ -2,7 +2,7 @@
 
 ## Product Summary
 
-`jj-navi` is a small Rust CLI that makes Jujutsu workspaces fast to create, switch, inspect, merge, and clean up for parallel human and AI-agent workflows.
+`jj-navi` is a small Rust CLI that makes Jujutsu workspaces fast to create, switch, inspect, merge, and remove for parallel human and AI-agent workflows.
 
 It is a workspace lifecycle layer over native `jj workspace` primitives. It should make common parallel-workspace operations obvious without becoming a replacement VCS workflow engine.
 
@@ -54,8 +54,8 @@ Supported binaries:
 2. Make creating a workspace feel like a mode of switching.
 3. Make many parallel workspaces understandable without deep JJ knowledge.
 4. Keep JJ as the source of truth.
-5. Make cleanup safe and explicit.
-6. Add guided merge support without hiding JJ semantics.
+5. Make workspace removal destructive but guarded and explicit.
+6. Add merge preview support without hiding JJ semantics.
 7. Stay small and conservative around destructive actions.
 
 ## Non-Goals
@@ -80,16 +80,16 @@ navi switch --create feature-one
 navi switch --create feature-two
 navi switch -
 navi list
-navi merge plan --from feature-two
-navi cleanup plan
+navi merge preview --from feature-two
+navi remove feature-two --yes
 ```
 
 Mental model:
 
 1. create or jump with `switch`
 2. inspect workspace inventory and active work with `list`
-3. merge deliberately with `merge plan/apply`
-4. clean up safely with `cleanup plan/apply` or `remove`
+3. merge deliberately with a read-only merge preview before running JJ commands
+4. remove finished or abandoned workspaces with an explicit destructive guard
 5. diagnose degraded state with `doctor` only when needed
 
 ## Near-Term Roadmap
@@ -129,57 +129,54 @@ Rules:
 - `list` does not block forever on one workspace; degraded currentness remains visible per row
 - stale or missing workspaces should remain visible instead of failing the whole command
 
-### 2. Safe Cleanup
+### 2. Guarded Workspace Removal
 
-Add:
+Change:
 
 ```sh
-navi cleanup plan [--json] [--compact]
-navi cleanup apply [--forget] [--delete-dirs] [--yes]
+navi remove <workspace> [--yes|-y]
 ```
 
 Purpose:
 
-- clean stale workspace lifecycle state without risking active work
-- separate inspection from mutation
-
-Cleanup categories:
-
-- Navi metadata exists but JJ no longer lists the workspace
-- JJ lists a workspace but Navi has no metadata
-- JJ lists a workspace whose directory is missing
-- JJ lists a workspace whose directory is stale
-- a forgotten workspace directory is a deletion candidate
+- retire a local JJ workspace in one command
+- keep JJ workspace records and local workspace directories from drifting apart
+- make destructive deletion obvious and guarded
 
 Rules:
 
-- `cleanup plan` is read-only
-- `cleanup apply` must require explicit action flags
-- current workspace deletion is always refused
-- directory deletion requires `--delete-dirs` and confirmation or `--yes`
-- `jj abandon` is out of scope for the first cleanup version
+- `remove` refuses to remove the current workspace
+- `remove` validates the target workspace path before deletion
+- `remove` forgets the JJ workspace and removes Navi metadata
+- `remove` deletes the local workspace directory
+- without `--yes`/`-y`, `remove` must clearly show the path that will be deleted and ask for confirmation
+- with `--yes`/`-y`, `remove` skips confirmation for fast agent/human cleanup
+- deletion must use Rust filesystem APIs, not shelling out to `rm -rf`
+- failures should say which step failed and what state may remain
 
-### 3. Guided Merge
+### 3. Merge Preview
 
 Add:
 
 ```sh
-navi merge plan --from <workspace> [--into <workspace>] [--json]
-navi merge apply --from <workspace> [--into <workspace>] [--dry-run]
+navi merge preview --from <workspace> [--into <workspace>] [--json]
 ```
 
 Purpose:
 
-- help users move useful work from one workspace into another with explicit source and target
-- make merge preflight safer without becoming an autonomous merge engine
+- help users consolidate useful work from parallel JJ workspaces
+- make the duplicate-first merge pattern visible before mutation
+- provide a bridge from `navi list` to explicit JJ merge commands
 
 Rules:
 
 - source workspace is always explicit
 - target defaults to the current workspace unless `--into` is provided
-- `plan` prints the proposed JJ operation without applying the merge
-- `apply` runs only after path health and source/target checks pass
-- stale, missing, ambiguous, or conflicted states stop with guidance instead of guessing
+- `preview` is read-only and does not mutate JJ state, workspace files, metadata, or bookmarks
+- source and target paths must be healthy before a preview is produced
+- stale, missing, ambiguous, or not-current states stop with guidance instead of guessing
+- when the source belongs to another workspace, preview should recommend the safe `jj duplicate` then `jj rebase` pattern
+- `merge apply` is out of scope until preview behavior is proven useful
 
 ## Port And Env Allocation Decision
 
@@ -211,13 +208,13 @@ Possible later compromise:
 7. `list` shows compact diff statistics and workspace age when known.
 8. `doctor` explains degraded repo, workspace, and shell state.
 9. `remove` refuses to remove the current workspace.
+10. `remove --yes` forgets a non-current workspace and deletes its local directory.
 
 ### New Scope
 
-1. `cleanup plan` identifies cleanup candidates without mutation.
-2. `cleanup apply` performs only explicit, confirmed cleanup actions.
-3. `merge plan` reports source, target, and intended JJ operation without applying it.
-4. `merge apply` refuses stale, missing, or ambiguous paths before running JJ operations.
+1. `remove` clearly warns before destructive directory deletion unless `--yes`/`-y` is provided.
+2. `merge preview` reports source, target, and intended JJ commands without applying them.
+3. `merge preview` explains the duplicate-first pattern for work from another workspace.
 
 ## Testing Priorities
 
@@ -231,10 +228,10 @@ Priority coverage:
 - fresh list JSON output
 - list currentness, skipped workspace reporting, and failure reporting
 - list diff summary and workspace age
-- cleanup plan read-only behavior
-- cleanup apply safeguards
-- merge plan read-only behavior
-- merge apply preflight behavior
+- guarded destructive remove behavior
+- remove `--yes`/`-y` fast path
+- merge preview read-only behavior
+- merge preview preflight behavior
 - `navi` and `nv` parity for user-facing commands
 
 ## Documentation Priorities
@@ -245,8 +242,8 @@ Docs should explain the product in this order:
 2. the core switch/list workflow
 3. shell integration
 4. fresh cross-workspace list behavior
-5. safe cleanup
-6. guided merge
+5. guarded destructive remove
+6. merge preview for parallel workspace consolidation
 7. doctor and degraded-state recovery
 
 ## References
