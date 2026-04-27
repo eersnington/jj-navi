@@ -308,7 +308,7 @@ impl NaviWorkspace {
                 })?;
         let duplicated_head_change_id =
             parse_duplicated_change_id(&duplicate_output.stderr, &merge.source_head_commit_id)
-                .ok_or_else(|| Error::MergeDuplicateRootUnknown {
+                .ok_or_else(|| Error::MergeDuplicateHeadUnknown {
                     source_workspace: merge.source.snapshot.name.as_str().to_owned(),
                 })?;
 
@@ -375,7 +375,7 @@ impl NaviWorkspace {
         };
         let heads = jj.revisions(&format!("heads({source_revset})"))?;
         let [head] = heads.as_slice() else {
-            return Err(Error::MergeSourceMultipleRoots {
+            return Err(Error::MergeSourceMultipleHeads {
                 source_workspace: source.snapshot.name.as_str().to_owned(),
                 target: target.snapshot.name.as_str().to_owned(),
             });

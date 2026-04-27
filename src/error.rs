@@ -130,11 +130,31 @@ pub enum Error {
         target: String,
     },
 
+    /// Merge source has a shape this command does not handle safely yet.
+    #[error(
+        "error: merge source workspace '{source_workspace}' has multiple independent heads relative to target workspace '{target}'\nhint: merge one linear workspace stack at a time"
+    )]
+    MergeSourceMultipleHeads {
+        /// Source workspace name.
+        source_workspace: String,
+        /// Target workspace name.
+        target: String,
+    },
+
     /// `jj duplicate` succeeded but Navi could not identify the duplicated root.
     #[error(
         "error: duplicated source workspace '{source_workspace}', but could not identify the duplicated root change\nhint: rebase was not attempted; inspect the new duplicate with jj log"
     )]
     MergeDuplicateRootUnknown {
+        /// Source workspace name.
+        source_workspace: String,
+    },
+
+    /// `jj duplicate` succeeded but Navi could not identify the duplicated head.
+    #[error(
+        "error: duplicated source workspace '{source_workspace}', but could not identify the duplicated head change\nhint: rebase was not attempted; inspect the new duplicate with jj log"
+    )]
+    MergeDuplicateHeadUnknown {
         /// Source workspace name.
         source_workspace: String,
     },
