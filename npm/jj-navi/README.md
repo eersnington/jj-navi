@@ -19,6 +19,7 @@ jj workspaces are great for parallel work, but the workflow around it is quite c
 
 - **`switch --create`** — go to a workspace, creating it at a deterministic path if it doesn't exist
 - **`list`** — snapshot each workspace and show path health, diff stats, commit info, and age
+- **`merge`** — merge work from another workspace into the current or named workspace
 - **`remove`** — forget a workspace and delete its local directory; refuses current workspace
 
 With shell integration installed, `navi switch` also changes your current directory.
@@ -98,13 +99,16 @@ navi switch <workspace>          # switch to a workspace
 navi switch -                    # switch to previous workspace
 navi switch @                    # switch to current workspace explicitly
 navi switch --create <workspace> # create and switch
-navi switch --create <workspace> --revision <revset>
+navi switch --create <workspace> --revision <revset> # create from a revision
 
 navi list                        # human-readable workspace inventory
 navi list --json
 navi list --json --compact
 
 navi doctor [--json] [--compact] # diagnose repo, workspace, and shell state
+
+navi merge --from <workspace>     # merge a workspace into the current workspace
+navi merge --from <workspace> --into <workspace>
 
 navi remove <workspace>          # forget a workspace and delete its directory
 navi remove <workspace> --yes    # skip destructive confirmation
