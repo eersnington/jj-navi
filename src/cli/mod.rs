@@ -20,35 +20,46 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(
-        about = "Switch to an existing workspace, '-' for previous, or create one with --create"
+        about = "Switch to an existing workspace, '-' for previous, or create one with --create",
+        visible_alias = "cd"
     )]
     Switch {
         #[arg(long, short = 'c', help = "Create the workspace if it does not exist")]
         create: bool,
 
-        #[arg(long, help = "Revision to base a newly created workspace on")]
+        #[arg(
+            long,
+            short = 'r',
+            help = "Revision to base a newly created workspace on"
+        )]
         revision: Option<String>,
 
         #[arg(help = "Workspace name, or '-' for the previous workspace")]
         workspace: String,
     },
-    #[command(about = "List known workspaces with path and commit details")]
+    #[command(
+        about = "List known workspaces with path and commit details",
+        visible_alias = "ls"
+    )]
     List {
-        #[arg(long, help = "Render workspaces as JSON")]
+        #[arg(long, short = 'j', help = "Render workspaces as JSON")]
         json: bool,
 
-        #[arg(long, help = "Render compact JSON", requires = "json")]
+        #[arg(long, short = 'c', help = "Render compact JSON", requires = "json")]
         compact: bool,
     },
     #[command(about = "Inspect repo, workspace, and shell health")]
     Doctor {
-        #[arg(long, help = "Render diagnostics as JSON")]
+        #[arg(long, short = 'j', help = "Render diagnostics as JSON")]
         json: bool,
 
-        #[arg(long, help = "Render compact JSON", requires = "json")]
+        #[arg(long, short = 'c', help = "Render compact JSON", requires = "json")]
         compact: bool,
     },
-    #[command(about = "Forget a non-current workspace and delete its directory")]
+    #[command(
+        about = "Forget a non-current workspace and delete its directory",
+        visible_alias = "rm"
+    )]
     Remove {
         #[arg(long, short = 'y', help = "Skip destructive confirmation")]
         yes: bool,
@@ -58,10 +69,14 @@ enum Commands {
     },
     #[command(about = "Merge work from another JJ workspace")]
     Merge {
-        #[arg(long, help = "Source workspace to merge from")]
+        #[arg(long, short = 'f', help = "Source workspace to merge from")]
         from: String,
 
-        #[arg(long, help = "Target workspace to merge into; defaults to current")]
+        #[arg(
+            long,
+            short = 'i',
+            help = "Target workspace to merge into; defaults to current"
+        )]
         into: Option<String>,
     },
     #[command(about = "Shell integration and future config commands")]
@@ -91,7 +106,12 @@ enum ShellCommands {
     },
     #[command(about = "Install the managed shell integration block into your rc file")]
     Install {
-        #[arg(long, help = "Shell to install for; defaults to $SHELL", value_enum)]
+        #[arg(
+            long,
+            short = 's',
+            help = "Shell to install for; defaults to $SHELL",
+            value_enum
+        )]
         shell: Option<ShellKind>,
     },
 }

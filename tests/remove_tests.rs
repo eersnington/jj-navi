@@ -68,7 +68,7 @@ fn remove_with_short_yes_deletes_directory_without_prompt() {
 
     command("navi")
         .current_dir(repo.path())
-        .args(["remove", "feature-auth", "-y"])
+        .args(["rm", "feature-auth", "-y"])
         .assert()
         .success()
         .stdout(predicate::str::contains("deleted workspace directory"))

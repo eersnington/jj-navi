@@ -41,7 +41,7 @@ fn list_uses_actual_jj_path_after_config_changes() {
 
     command("navi")
         .current_dir(repo.path())
-        .args(["list"])
+        .args(["ls"])
         .assert()
         .success()
         .stdout(predicate::str::contains("status"))
@@ -328,7 +328,7 @@ fn list_json_compact_renders_single_line() {
     let repo = TempJjRepo::new();
     repo.create_workspace("feature-auth");
 
-    let output = command_output("navi", repo.path(), &["list", "--json", "--compact"]);
+    let output = command_output("navi", repo.path(), &["ls", "-j", "-c"]);
 
     assert!(output.status.success(), "compact json list failed");
     let stdout = String::from_utf8(output.stdout.clone()).expect("utf8 stdout");

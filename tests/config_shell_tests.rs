@@ -31,7 +31,7 @@ fn config_shell_install_creates_bashrc_managed_block() {
 
     command("navi")
         .env("HOME", home.path())
-        .args(["config", "shell", "install", "--shell", "bash"])
+        .args(["config", "shell", "install", "-s", "bash"])
         .assert()
         .success();
 
