@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::types::MergePreviewWorkspaceRole;
+
 /// Crate-wide error type for CLI, discovery, and `jj` integration failures.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -64,6 +66,47 @@ pub enum Error {
     /// The user declined a destructive workspace removal prompt.
     #[error("error: remove cancelled\nhint: rerun with --yes to skip confirmation")]
     RemoveCancelled,
+
+    /// Merge recommendation would compare a workspace with itself.
+    #[error(
+        "error: cannot merge workspace '{0}' into itself\nhint: choose a different --into workspace"
+    )]
+    MergePreviewSameWorkspace(String),
+
+    /// Merge recommendation could not find the requested workspace.
+    #[error(
+        "error: merge {role} workspace '{workspace}' does not exist\nhint: run navi list and choose an existing workspace"
+    )]
+    MergePreviewWorkspaceMissing {
+        /// Source or target role.
+        role: MergePreviewWorkspaceRole,
+        /// Requested workspace name.
+        workspace: String,
+    },
+
+    /// Merge recommendation found more than one requested workspace.
+    #[error(
+        "error: merge {role} workspace '{workspace}' is ambiguous\nhint: inspect jj workspace list before merging"
+    )]
+    MergePreviewWorkspaceAmbiguous {
+        /// Source or target role.
+        role: MergePreviewWorkspaceRole,
+        /// Requested workspace name.
+        workspace: String,
+    },
+
+    /// Merge recommendation found an unsafe workspace state.
+    #[error(
+        "error: merge {role} workspace '{workspace}' is not ready: {reason}\nhint: run navi list and fix the workspace before merging"
+    )]
+    MergePreviewWorkspaceUnavailable {
+        /// Source or target role.
+        role: MergePreviewWorkspaceRole,
+        /// Requested workspace name.
+        workspace: String,
+        /// Reason the workspace is unsafe.
+        reason: String,
+    },
 
     /// Directory deletion failed after the workspace was already forgotten.
     #[error(

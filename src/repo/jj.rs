@@ -21,6 +21,7 @@ pub(crate) struct JjWorkspaceListEntry {
     pub(crate) name: WorkspaceName,
     pub(crate) is_current: bool,
     pub(crate) commit_id: String,
+    pub(crate) change_id: String,
     pub(crate) message: String,
 }
 
@@ -150,7 +151,7 @@ impl<'a> JjClient<'a> {
             OsString::from("list"),
             OsString::from("-T"),
             OsString::from(
-                "name ++ \"\\0\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\0\" ++ target.commit_id().short(12) ++ \"\\0\" ++ target.description().first_line() ++ \"\\n\"",
+                "name ++ \"\\0\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\0\" ++ target.commit_id().short(12) ++ \"\\0\" ++ target.change_id().short(12) ++ \"\\0\" ++ target.description().first_line() ++ \"\\n\"",
             ),
         ])?;
 
@@ -395,10 +396,14 @@ fn parse_version_component(component: &str) -> Option<u64> {
 }
 
 fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
-    let mut parts = line.splitn(4, '\0');
-    let (Some(name), Some(is_current), Some(commit_id), Some(message)) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let mut parts = line.splitn(5, '\0');
+    let (Some(name), Some(is_current), Some(commit_id), Some(change_id), Some(message)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
         return Err(Error::InvalidJjWorkspaceListEntry(line.to_owned()));
     };
 
@@ -412,6 +417,7 @@ fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
         name: WorkspaceName::new(name.to_owned())?,
         is_current,
         commit_id: commit_id.to_owned(),
+        change_id: change_id.to_owned(),
         message: message.to_owned(),
     })
 }

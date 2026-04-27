@@ -6,7 +6,8 @@ use pathdiff::diff_paths;
 
 use crate::error::{Error, Result};
 use crate::types::{
-    RepoConfig, WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot, WorkspaceFreshnessStatus,
+    MergePreview, MergePreviewWorkspace, MergePreviewWorkspaceRole, RepoConfig,
+    WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot, WorkspaceFreshnessStatus,
     WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceListStatus, WorkspaceMetadataStatus,
     WorkspaceName, WorkspacePathSnapshot, WorkspacePathState, WorkspaceSnapshot,
 };
@@ -284,6 +285,45 @@ impl NaviWorkspace {
         Ok(snapshots)
     }
 
+    /// Build a read-only merge preview between two workspaces.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either workspace is missing, stale, not current, or
+    /// otherwise unsafe to use for a merge recommendation.
+    pub fn merge_preview(
+        &self,
+        source: &WorkspaceName,
+        target: Option<&WorkspaceName>,
+    ) -> Result<MergePreview> {
+        let target = target.unwrap_or(&self.current_workspace);
+        if source == target {
+            return Err(Error::MergePreviewSameWorkspace(source.as_str().to_owned()));
+        }
+
+        let snapshots = self.list_read_only_workspace_snapshots()?;
+        let source = self.resolve_merge_preview_workspace(
+            &snapshots,
+            source,
+            MergePreviewWorkspaceRole::Source,
+        )?;
+        let target = self.resolve_merge_preview_workspace(
+            &snapshots,
+            target,
+            MergePreviewWorkspaceRole::Target,
+        )?;
+        let commands = vec![
+            format!("jj duplicate {}", source.snapshot.change_id),
+            format!("jj rebase -s <duplicate> -d {}", target.snapshot.change_id),
+        ];
+
+        Ok(MergePreview {
+            source,
+            target,
+            commands,
+        })
+    }
+
     fn discover_workspace_snapshots_with_metadata(
         &self,
         metadata: &WorkspaceMetadataStore,
@@ -304,6 +344,23 @@ impl NaviWorkspace {
         )
     }
 
+    fn list_read_only_workspace_snapshots(&self) -> Result<Vec<WorkspaceSnapshot>> {
+        let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
+        let mut snapshots = self.discover_workspace_snapshots_with_metadata(&metadata)?;
+        for snapshot in &mut snapshots {
+            if matches!(
+                snapshot.path.state,
+                WorkspacePathState::Confirmed | WorkspacePathState::Inferred
+            ) {
+                snapshot.diff = super::jj::diff_stat_at(&snapshot.path.path);
+            }
+            snapshot.age = crate::types::WorkspaceAgeSnapshot {
+                created_at: metadata.workspace_created_at(&snapshot.name),
+            };
+        }
+        Ok(snapshots)
+    }
+
     fn refresh_workspace_targets(&self, snapshots: &mut [WorkspaceSnapshot]) -> Result<()> {
         let jj = JjClient::new(&self.workspace_root);
         let targets = jj
@@ -316,6 +373,7 @@ impl NaviWorkspace {
             if let Some(entry) = targets.get(&snapshot.name) {
                 snapshot.is_current = entry.is_current;
                 snapshot.commit_id.clone_from(&entry.commit_id);
+                snapshot.change_id.clone_from(&entry.change_id);
                 snapshot.message.clone_from(&entry.message);
             }
         }
@@ -343,6 +401,7 @@ impl NaviWorkspace {
                 metadata_status,
             },
             commit_id: entry.commit_id,
+            change_id: entry.change_id,
             message: entry.message,
             freshness: WorkspaceFreshnessSnapshot::current(),
             diff: WorkspaceDiffSnapshot::unknown(),
@@ -364,6 +423,7 @@ impl NaviWorkspace {
             path,
             path_state: snapshot.path.state,
             commit_id: snapshot.commit_id.clone(),
+            change_id: snapshot.change_id.clone(),
             message: snapshot.message.clone(),
             freshness: snapshot.freshness.clone(),
             diff: snapshot.diff.clone(),
@@ -405,6 +465,38 @@ impl NaviWorkspace {
                 },
             },
         )
+    }
+
+    fn resolve_merge_preview_workspace(
+        &self,
+        snapshots: &[WorkspaceSnapshot],
+        workspace: &WorkspaceName,
+        role: MergePreviewWorkspaceRole,
+    ) -> Result<MergePreviewWorkspace> {
+        let matches = snapshots
+            .iter()
+            .filter(|snapshot| snapshot.name == *workspace)
+            .collect::<Vec<_>>();
+        let [snapshot] = matches.as_slice() else {
+            return if matches.is_empty() {
+                Err(Error::MergePreviewWorkspaceMissing {
+                    role,
+                    workspace: workspace.as_str().to_owned(),
+                })
+            } else {
+                Err(Error::MergePreviewWorkspaceAmbiguous {
+                    role,
+                    workspace: workspace.as_str().to_owned(),
+                })
+            };
+        };
+
+        validate_merge_preview_snapshot(snapshot, role)?;
+
+        Ok(MergePreviewWorkspace {
+            snapshot: (*snapshot).clone(),
+            display_path: display_path_for_list(&self.workspace_root, &snapshot.path.path),
+        })
     }
 
     fn resolve_workspace_forget_target(&self, workspace: &WorkspaceName) -> Result<WorkspaceName> {
@@ -482,6 +574,51 @@ fn apply_workspace_details(
     snapshot.age = crate::types::WorkspaceAgeSnapshot {
         created_at: metadata.workspace_created_at(&snapshot.name),
     };
+}
+
+fn validate_merge_preview_snapshot(
+    snapshot: &WorkspaceSnapshot,
+    role: MergePreviewWorkspaceRole,
+) -> Result<()> {
+    let reason = match snapshot.path.state {
+        WorkspacePathState::Confirmed | WorkspacePathState::Inferred => None,
+        WorkspacePathState::Missing => Some(String::from("workspace path is missing")),
+        WorkspacePathState::Stale => Some(String::from("workspace path is stale")),
+    }
+    .or_else(|| {
+        (snapshot.freshness.status != WorkspaceFreshnessStatus::Current).then(|| {
+            snapshot
+                .freshness
+                .reason
+                .clone()
+                .unwrap_or_else(|| String::from("workspace could not be made current"))
+        })
+    })
+    .or_else(|| {
+        snapshot
+            .health
+            .statuses
+            .iter()
+            .find(|status| {
+                matches!(
+                    status,
+                    WorkspaceListStatus::Missing
+                        | WorkspaceListStatus::Stale
+                        | WorkspaceListStatus::NotCurrent
+                )
+            })
+            .map(|status| format!("workspace health is {}", status.label()))
+    });
+
+    if let Some(reason) = reason {
+        Err(Error::MergePreviewWorkspaceUnavailable {
+            role,
+            workspace: snapshot.name.as_str().to_owned(),
+            reason,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 pub(crate) fn collect_workspace_snapshots(

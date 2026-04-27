@@ -4,13 +4,14 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::types::{
-    WorkspaceDiffSnapshot, WorkspaceDiffStatus, WorkspaceListEntry, WorkspaceListStatus,
-    WorkspacePathState, WorkspaceSnapshot,
+    MergePreview, MergePreviewWorkspace, WorkspaceDiffSnapshot, WorkspaceDiffStatus,
+    WorkspaceListEntry, WorkspaceListStatus, WorkspacePathState, WorkspaceSnapshot,
 };
 
 use super::{
-    INFERRED_ISSUE_URL, hyperlink, hyperlink_enabled, pad_visible, style_list_badge, style_meta,
-    style_table_header, style_workspace_name, styled_stdout_text, theme,
+    INFERRED_ISSUE_URL, hyperlink, hyperlink_enabled, pad_visible, style_detail_label,
+    style_list_badge, style_meta, style_table_header, style_workspace_name, styled_stdout_text,
+    theme,
 };
 
 use std::env;
@@ -187,6 +188,7 @@ pub fn render_workspace_list_json(
                 name: snapshot.name.as_str(),
                 is_current: snapshot.is_current,
                 commit_id: snapshot.commit_id.as_str(),
+                change_id: snapshot.change_id.as_str(),
                 message: snapshot.message.as_str(),
                 path: WorkspacePathJson {
                     display: if snapshot.is_current {
@@ -240,6 +242,125 @@ pub fn render_workspace_list_json(
     .map_err(|error| crate::Error::JsonSerialization(error.to_string()))?;
 
     Ok(rendered)
+}
+
+/// Render a merge recommendation as human-facing text.
+#[must_use]
+pub fn render_merge_preview(preview: &MergePreview) -> String {
+    let mut output = String::new();
+    writeln!(output, "{}", style_table_header("Merge recommendation")).expect("write heading");
+    render_merge_preview_workspace(&mut output, "source", &preview.source);
+    render_merge_preview_workspace(&mut output, "target", &preview.target);
+    writeln!(output).expect("write blank line");
+    writeln!(output, "{}", style_table_header("Suggested commands")).expect("write heading");
+    for command in &preview.commands {
+        writeln!(output, "  {command}").expect("write command");
+    }
+    writeln!(
+        output,
+        "Use the change ID printed by `jj duplicate` for `<duplicate>`."
+    )
+    .expect("write duplicate note");
+    output
+}
+
+fn render_merge_preview_workspace(
+    output: &mut String,
+    label: &str,
+    workspace: &MergePreviewWorkspace,
+) {
+    let snapshot = &workspace.snapshot;
+    let message = if snapshot.message.is_empty() {
+        "(no description set)"
+    } else {
+        snapshot.message.as_str()
+    };
+    writeln!(
+        output,
+        "{} {}  change {}  commit {}  {}",
+        style_detail_label(label),
+        snapshot.name,
+        style_meta(&snapshot.change_id),
+        style_meta(&snapshot.commit_id),
+        message,
+    )
+    .expect("write workspace summary");
+    writeln!(
+        output,
+        "  path: {} ({}, {})",
+        workspace.display_path.display(),
+        snapshot.path.state.label(),
+        snapshot.path.source.label(),
+    )
+    .expect("write workspace path");
+    writeln!(
+        output,
+        "  health: {}  freshness: {}  diff: {}",
+        snapshot
+            .health
+            .statuses
+            .iter()
+            .map(|status| status.label())
+            .collect::<Vec<_>>()
+            .join(", "),
+        snapshot.freshness.status.label(),
+        render_diff_plain(&snapshot.diff),
+    )
+    .expect("write workspace health");
+}
+
+/// Render a merge preview as JSON.
+///
+/// # Errors
+///
+/// Returns an error if the payload cannot be serialized.
+pub fn render_merge_preview_json(preview: &MergePreview) -> crate::Result<String> {
+    let payload = MergePreviewJsonOutput {
+        source: merge_preview_workspace_json(&preview.source),
+        target: merge_preview_workspace_json(&preview.target),
+        commands: preview.commands.iter().map(String::as_str).collect(),
+    };
+
+    serde_json::to_string_pretty(&payload)
+        .map_err(|error| crate::Error::JsonSerialization(error.to_string()))
+}
+
+fn merge_preview_workspace_json(
+    workspace: &MergePreviewWorkspace,
+) -> MergePreviewWorkspaceJson<'_> {
+    let snapshot = &workspace.snapshot;
+    MergePreviewWorkspaceJson {
+        name: snapshot.name.as_str(),
+        commit_id: snapshot.commit_id.as_str(),
+        change_id: snapshot.change_id.as_str(),
+        message: snapshot.message.as_str(),
+        path: WorkspacePathJson {
+            display: workspace.display_path.display().to_string(),
+            absolute: snapshot.path.path.display().to_string(),
+            state: snapshot.path.state.label(),
+            source: snapshot.path.source.label(),
+        },
+        health: WorkspaceHealthJson {
+            statuses: snapshot
+                .health
+                .statuses
+                .iter()
+                .map(|status| status.label())
+                .collect(),
+            metadata_status: snapshot.health.metadata_status.label(),
+        },
+        freshness: WorkspaceFreshnessJson {
+            status: snapshot.freshness.status.label(),
+            reason: snapshot.freshness.reason.as_deref(),
+        },
+        diff: WorkspaceDiffJson {
+            status: snapshot.diff.status.label(),
+            files_changed: snapshot.diff.files_changed,
+            insertions: snapshot.diff.insertions,
+            deletions: snapshot.diff.deletions,
+            display: render_diff_plain(&snapshot.diff),
+        },
+    }
 }
 
 fn render_workspace_status(entry: &WorkspaceListEntry) -> RenderedCell {
@@ -410,6 +531,7 @@ struct WorkspaceJsonEntry<'a> {
     name: &'a str,
     is_current: bool,
     commit_id: &'a str,
+    change_id: &'a str,
     message: &'a str,
     path: WorkspacePathJson,
     health: WorkspaceHealthJson<'a>,
@@ -451,4 +573,23 @@ struct WorkspaceDiffJson {
     insertions: Option<u32>,
     deletions: Option<u32>,
     display: String,
+}
+
+#[derive(Serialize)]
+struct MergePreviewJsonOutput<'a> {
+    source: MergePreviewWorkspaceJson<'a>,
+    target: MergePreviewWorkspaceJson<'a>,
+    commands: Vec<&'a str>,
+}
+
+#[derive(Serialize)]
+struct MergePreviewWorkspaceJson<'a> {
+    name: &'a str,
+    commit_id: &'a str,
+    change_id: &'a str,
+    message: &'a str,
+    path: WorkspacePathJson,
+    health: WorkspaceHealthJson<'a>,
+    freshness: WorkspaceFreshnessJson<'a>,
+    diff: WorkspaceDiffJson,
 }

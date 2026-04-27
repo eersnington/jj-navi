@@ -271,6 +271,8 @@ pub struct WorkspaceSnapshot {
     pub health: WorkspaceHealthSnapshot,
     /// Short commit identifier.
     pub commit_id: String,
+    /// Short change identifier.
+    pub change_id: String,
     /// First-line commit description.
     pub message: String,
     /// Whether this workspace was made current before rendering.
@@ -476,6 +478,8 @@ pub struct WorkspaceListEntry {
     pub path_state: WorkspacePathState,
     /// Short commit identifier.
     pub commit_id: String,
+    /// Short change identifier.
+    pub change_id: String,
     /// First-line commit description.
     pub message: String,
     /// Whether this workspace was made current before rendering.
@@ -484,6 +488,52 @@ pub struct WorkspaceListEntry {
     pub diff: WorkspaceDiffSnapshot,
     /// Workspace age metadata.
     pub age: WorkspaceAgeSnapshot,
+}
+
+/// Read-only advisory output for merging work across JJ workspaces.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MergePreview {
+    /// Workspace that contains work to bring over.
+    pub source: MergePreviewWorkspace,
+    /// Workspace that should receive the duplicated work.
+    pub target: MergePreviewWorkspace,
+    /// Suggested JJ commands to run manually.
+    pub commands: Vec<String>,
+}
+
+/// Snapshot details included for each side of a merge preview.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MergePreviewWorkspace {
+    /// Workspace snapshot after freshness validation.
+    pub snapshot: WorkspaceSnapshot,
+    /// Display path relative to the currently opened workspace.
+    pub display_path: PathBuf,
+}
+
+/// Role of a workspace in merge preview validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MergePreviewWorkspaceRole {
+    /// Source workspace role.
+    Source,
+    /// Target workspace role.
+    Target,
+}
+
+impl MergePreviewWorkspaceRole {
+    /// Return the human-facing role label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Target => "target",
+        }
+    }
+}
+
+impl fmt::Display for MergePreviewWorkspaceRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
 }
 
 /// Display state for a workspace path rendered by `navi list`.

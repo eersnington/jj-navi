@@ -16,7 +16,10 @@ pub use crate::shell::{
 };
 #[doc(hidden)]
 pub use render::render_workspace_table_with_width;
-pub use render::{render_workspace_list_json, render_workspace_table};
+pub use render::{
+    render_merge_preview, render_merge_preview_json, render_workspace_list_json,
+    render_workspace_table,
+};
 
 const INFERRED_ISSUE_URL: &str = "https://github.com/eersnington/jj-navi/issues/36";
 static OUTPUT_THEME: OnceLock<OutputTheme> = OnceLock::new();
