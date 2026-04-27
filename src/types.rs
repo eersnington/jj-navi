@@ -271,6 +271,8 @@ pub struct WorkspaceSnapshot {
     pub health: WorkspaceHealthSnapshot,
     /// Short commit identifier.
     pub commit_id: String,
+    /// Short change identifier.
+    pub change_id: String,
     /// First-line commit description.
     pub message: String,
     /// Whether this workspace was made current before rendering.
@@ -476,6 +478,8 @@ pub struct WorkspaceListEntry {
     pub path_state: WorkspacePathState,
     /// Short commit identifier.
     pub commit_id: String,
+    /// Short change identifier.
+    pub change_id: String,
     /// First-line commit description.
     pub message: String,
     /// Whether this workspace was made current before rendering.
@@ -484,6 +488,84 @@ pub struct WorkspaceListEntry {
     pub diff: WorkspaceDiffSnapshot,
     /// Workspace age metadata.
     pub age: WorkspaceAgeSnapshot,
+}
+
+/// Executable merge operation across JJ workspaces.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceMerge {
+    /// Workspace that contains work to bring over.
+    pub source: WorkspaceMergeSide,
+    /// Workspace that should receive the duplicated work.
+    pub target: WorkspaceMergeSide,
+    /// Non-empty source revisions selected for duplicate/rebase.
+    pub revisions: Vec<WorkspaceMergeRevision>,
+    /// Source root commit used as the rebase source after duplication.
+    pub source_root_commit_id: String,
+    /// Source head commit used to place the target workspace after rebase.
+    pub source_head_commit_id: String,
+}
+
+/// Snapshot details included for each side of a workspace merge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceMergeSide {
+    /// Workspace snapshot after freshness validation.
+    pub snapshot: WorkspaceSnapshot,
+    /// Display path relative to the currently opened workspace.
+    pub display_path: PathBuf,
+}
+
+/// One non-empty source revision selected for workspace merge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceMergeRevision {
+    /// Short commit identifier.
+    pub commit_id: String,
+    /// Short change identifier.
+    pub change_id: String,
+    /// First-line commit description.
+    pub message: String,
+}
+
+/// Completed workspace merge details.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceMergeOutcome {
+    /// Prepared operation inputs.
+    pub merge: WorkspaceMerge,
+    /// Change ID created by `jj duplicate` for the source root.
+    pub duplicated_root_change_id: String,
+    /// Change ID created by `jj duplicate` for the source head.
+    pub duplicated_head_change_id: String,
+    /// Raw `jj duplicate` diagnostic output.
+    pub duplicate_output: String,
+    /// Raw `jj rebase` diagnostic output.
+    pub rebase_output: String,
+    /// Raw `jj new` diagnostic output from updating the target workspace.
+    pub new_output: String,
+}
+
+/// Role of a workspace in merge validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkspaceMergeRole {
+    /// Source workspace role.
+    Source,
+    /// Target workspace role.
+    Target,
+}
+
+impl WorkspaceMergeRole {
+    /// Return the human-facing role label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Target => "target",
+        }
+    }
+}
+
+impl fmt::Display for WorkspaceMergeRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
 }
 
 /// Display state for a workspace path rendered by `navi list`.

@@ -7,8 +7,10 @@ use pathdiff::diff_paths;
 use crate::error::{Error, Result};
 use crate::types::{
     RepoConfig, WorkspaceDiffSnapshot, WorkspaceFreshnessSnapshot, WorkspaceFreshnessStatus,
-    WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceListStatus, WorkspaceMetadataStatus,
-    WorkspaceName, WorkspacePathSnapshot, WorkspacePathState, WorkspaceSnapshot,
+    WorkspaceHealthSnapshot, WorkspaceListEntry, WorkspaceListStatus, WorkspaceMerge,
+    WorkspaceMergeOutcome, WorkspaceMergeRevision, WorkspaceMergeRole, WorkspaceMergeSide,
+    WorkspaceMetadataStatus, WorkspaceName, WorkspacePathSnapshot, WorkspacePathState,
+    WorkspaceSnapshot,
 };
 
 use super::config::{ensure_repo_config, load_repo_config};
@@ -284,6 +286,110 @@ impl NaviWorkspace {
         Ok(snapshots)
     }
 
+    /// Merge one workspace's non-empty work into another workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either workspace is missing, stale, not current, or
+    /// otherwise unsafe to use for a merge.
+    pub fn merge_workspace(
+        &self,
+        source: &WorkspaceName,
+        target: Option<&WorkspaceName>,
+    ) -> Result<WorkspaceMergeOutcome> {
+        let merge = self.prepare_workspace_merge(source, target)?;
+        let jj = JjClient::new(&self.workspace_root);
+        let source_revset = source_revset(&merge.source.snapshot.name, &merge.target.snapshot.name);
+        let duplicate_output = jj.duplicate(&source_revset)?;
+        let duplicated_root_change_id =
+            parse_duplicated_change_id(&duplicate_output.stderr, &merge.source_root_commit_id)
+                .ok_or_else(|| Error::MergeDuplicateRootUnknown {
+                    source_workspace: merge.source.snapshot.name.as_str().to_owned(),
+                })?;
+        let duplicated_head_change_id =
+            parse_duplicated_change_id(&duplicate_output.stderr, &merge.source_head_commit_id)
+                .ok_or_else(|| Error::MergeDuplicateRootUnknown {
+                    source_workspace: merge.source.snapshot.name.as_str().to_owned(),
+                })?;
+
+        let rebase_output =
+            jj.rebase_source_onto(&duplicated_root_change_id, &merge.target.snapshot.change_id)?;
+        let target_jj = JjClient::new(&merge.target.snapshot.path.path);
+        let new_output = target_jj.new_working_copy(&duplicated_head_change_id)?;
+        if jj.has_conflicts(&duplicated_head_change_id)? {
+            let mut stderr = combine_command_output(&rebase_output);
+            stderr.push_str(&combine_command_output(&new_output));
+            return Err(Error::MergeRebaseFailed { stderr });
+        }
+
+        Ok(WorkspaceMergeOutcome {
+            merge,
+            duplicated_root_change_id,
+            duplicated_head_change_id,
+            duplicate_output: combine_command_output(&duplicate_output),
+            rebase_output: combine_command_output(&rebase_output),
+            new_output: combine_command_output(&new_output),
+        })
+    }
+
+    fn prepare_workspace_merge(
+        &self,
+        source: &WorkspaceName,
+        target: Option<&WorkspaceName>,
+    ) -> Result<WorkspaceMerge> {
+        let target = target.unwrap_or(&self.current_workspace);
+        if source == target {
+            return Err(Error::MergeSameWorkspace(source.as_str().to_owned()));
+        }
+
+        let snapshots = self.list_merge_workspace_snapshots(source, target)?;
+        let source =
+            self.resolve_merge_workspace(&snapshots, source, WorkspaceMergeRole::Source)?;
+        let target =
+            self.resolve_merge_workspace(&snapshots, target, WorkspaceMergeRole::Target)?;
+        let jj = JjClient::new(&self.workspace_root);
+        let source_revset = source_revset(&source.snapshot.name, &target.snapshot.name);
+        let revisions = jj
+            .revisions(&source_revset)?
+            .into_iter()
+            .map(|revision| WorkspaceMergeRevision {
+                commit_id: revision.commit_id,
+                change_id: revision.change_id,
+                message: revision.message,
+            })
+            .collect::<Vec<_>>();
+
+        if revisions.is_empty() {
+            return Err(Error::MergeSourceEmpty {
+                source_workspace: source.snapshot.name.as_str().to_owned(),
+                target: target.snapshot.name.as_str().to_owned(),
+            });
+        }
+
+        let roots = jj.revisions(&format!("roots({source_revset})"))?;
+        let [root] = roots.as_slice() else {
+            return Err(Error::MergeSourceMultipleRoots {
+                source_workspace: source.snapshot.name.as_str().to_owned(),
+                target: target.snapshot.name.as_str().to_owned(),
+            });
+        };
+        let heads = jj.revisions(&format!("heads({source_revset})"))?;
+        let [head] = heads.as_slice() else {
+            return Err(Error::MergeSourceMultipleRoots {
+                source_workspace: source.snapshot.name.as_str().to_owned(),
+                target: target.snapshot.name.as_str().to_owned(),
+            });
+        };
+
+        Ok(WorkspaceMerge {
+            source,
+            target,
+            revisions,
+            source_root_commit_id: root.commit_id.clone(),
+            source_head_commit_id: head.commit_id.clone(),
+        })
+    }
+
     fn discover_workspace_snapshots_with_metadata(
         &self,
         metadata: &WorkspaceMetadataStore,
@@ -304,6 +410,34 @@ impl NaviWorkspace {
         )
     }
 
+    fn list_merge_workspace_snapshots(
+        &self,
+        source: &WorkspaceName,
+        target: &WorkspaceName,
+    ) -> Result<Vec<WorkspaceSnapshot>> {
+        let metadata = WorkspaceMetadataStore::load(&self.repo_storage_path)?;
+        let mut snapshots = self.discover_workspace_snapshots_with_metadata(&metadata)?;
+
+        for snapshot in &mut snapshots {
+            let is_merge_side = snapshot.name == *source || snapshot.name == *target;
+            let freshness = if is_merge_side {
+                match snapshot.path.state {
+                    WorkspacePathState::Confirmed | WorkspacePathState::Inferred => {
+                        super::jj::snapshot_working_copy_at(&snapshot.path.path)
+                    }
+                    WorkspacePathState::Missing => WorkspaceFreshnessSnapshot::skipped_missing(),
+                    WorkspacePathState::Stale => WorkspaceFreshnessSnapshot::skipped_stale(),
+                }
+            } else {
+                WorkspaceFreshnessSnapshot::skipped_untrusted()
+            };
+            apply_workspace_details(snapshot, &metadata, freshness);
+        }
+
+        self.refresh_workspace_targets(&mut snapshots)?;
+        Ok(snapshots)
+    }
+
     fn refresh_workspace_targets(&self, snapshots: &mut [WorkspaceSnapshot]) -> Result<()> {
         let jj = JjClient::new(&self.workspace_root);
         let targets = jj
@@ -316,6 +450,7 @@ impl NaviWorkspace {
             if let Some(entry) = targets.get(&snapshot.name) {
                 snapshot.is_current = entry.is_current;
                 snapshot.commit_id.clone_from(&entry.commit_id);
+                snapshot.change_id.clone_from(&entry.change_id);
                 snapshot.message.clone_from(&entry.message);
             }
         }
@@ -343,6 +478,7 @@ impl NaviWorkspace {
                 metadata_status,
             },
             commit_id: entry.commit_id,
+            change_id: entry.change_id,
             message: entry.message,
             freshness: WorkspaceFreshnessSnapshot::current(),
             diff: WorkspaceDiffSnapshot::unknown(),
@@ -364,6 +500,7 @@ impl NaviWorkspace {
             path,
             path_state: snapshot.path.state,
             commit_id: snapshot.commit_id.clone(),
+            change_id: snapshot.change_id.clone(),
             message: snapshot.message.clone(),
             freshness: snapshot.freshness.clone(),
             diff: snapshot.diff.clone(),
@@ -405,6 +542,38 @@ impl NaviWorkspace {
                 },
             },
         )
+    }
+
+    fn resolve_merge_workspace(
+        &self,
+        snapshots: &[WorkspaceSnapshot],
+        workspace: &WorkspaceName,
+        role: WorkspaceMergeRole,
+    ) -> Result<WorkspaceMergeSide> {
+        let matches = snapshots
+            .iter()
+            .filter(|snapshot| snapshot.name == *workspace)
+            .collect::<Vec<_>>();
+        let [snapshot] = matches.as_slice() else {
+            return if matches.is_empty() {
+                Err(Error::MergeWorkspaceMissing {
+                    role,
+                    workspace: workspace.as_str().to_owned(),
+                })
+            } else {
+                Err(Error::MergeWorkspaceAmbiguous {
+                    role,
+                    workspace: workspace.as_str().to_owned(),
+                })
+            };
+        };
+
+        validate_merge_snapshot(snapshot, role)?;
+
+        Ok(WorkspaceMergeSide {
+            snapshot: (*snapshot).clone(),
+            display_path: display_path_for_list(&self.workspace_root, &snapshot.path.path),
+        })
     }
 
     fn resolve_workspace_forget_target(&self, workspace: &WorkspaceName) -> Result<WorkspaceName> {
@@ -482,6 +651,78 @@ fn apply_workspace_details(
     snapshot.age = crate::types::WorkspaceAgeSnapshot {
         created_at: metadata.workspace_created_at(&snapshot.name),
     };
+}
+
+fn validate_merge_snapshot(snapshot: &WorkspaceSnapshot, role: WorkspaceMergeRole) -> Result<()> {
+    let reason = match snapshot.path.state {
+        WorkspacePathState::Confirmed | WorkspacePathState::Inferred => None,
+        WorkspacePathState::Missing => Some(String::from("workspace path is missing")),
+        WorkspacePathState::Stale => Some(String::from("workspace path is stale")),
+    }
+    .or_else(|| {
+        (snapshot.freshness.status != WorkspaceFreshnessStatus::Current).then(|| {
+            snapshot
+                .freshness
+                .reason
+                .clone()
+                .unwrap_or_else(|| String::from("workspace could not be made current"))
+        })
+    })
+    .or_else(|| {
+        snapshot
+            .health
+            .statuses
+            .iter()
+            .find(|status| {
+                matches!(
+                    status,
+                    WorkspaceListStatus::Missing
+                        | WorkspaceListStatus::Stale
+                        | WorkspaceListStatus::NotCurrent
+                )
+            })
+            .map(|status| format!("workspace health is {}", status.label()))
+    });
+
+    if let Some(reason) = reason {
+        Err(Error::MergeWorkspaceUnavailable {
+            role,
+            workspace: snapshot.name.as_str().to_owned(),
+            reason,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn source_revset(source: &WorkspaceName, target: &WorkspaceName) -> String {
+    format!(
+        "{}..{} ~ empty()",
+        workspace_symbol(target),
+        workspace_symbol(source)
+    )
+}
+
+fn workspace_symbol(workspace: &WorkspaceName) -> String {
+    format!("{}@", workspace.as_str())
+}
+
+fn parse_duplicated_change_id(output: &str, source_root_commit_id: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let line = line.strip_prefix("Duplicated ")?;
+        let (source_commit_id, duplicated) = line.split_once(" as ")?;
+        if source_commit_id != source_root_commit_id {
+            return None;
+        }
+        duplicated.split_whitespace().next().map(ToOwned::to_owned)
+    })
+}
+
+fn combine_command_output(output: &super::jj::JjCommandOutput) -> String {
+    let mut combined = String::new();
+    combined.push_str(&output.stdout);
+    combined.push_str(&output.stderr);
+    combined
 }
 
 pub(crate) fn collect_workspace_snapshots(

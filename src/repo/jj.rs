@@ -21,7 +21,21 @@ pub(crate) struct JjWorkspaceListEntry {
     pub(crate) name: WorkspaceName,
     pub(crate) is_current: bool,
     pub(crate) commit_id: String,
+    pub(crate) change_id: String,
     pub(crate) message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct JjRevisionSummary {
+    pub(crate) commit_id: String,
+    pub(crate) change_id: String,
+    pub(crate) message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct JjCommandOutput {
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 pub(crate) struct JjClient<'a> {
@@ -150,7 +164,7 @@ impl<'a> JjClient<'a> {
             OsString::from("list"),
             OsString::from("-T"),
             OsString::from(
-                "name ++ \"\\0\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\0\" ++ target.commit_id().short(12) ++ \"\\0\" ++ target.description().first_line() ++ \"\\n\"",
+                "name ++ \"\\0\" ++ if(target.current_working_copy(), \"1\", \"0\") ++ \"\\0\" ++ target.commit_id().short(12) ++ \"\\0\" ++ target.change_id().short(12) ++ \"\\0\" ++ target.description().first_line() ++ \"\\n\"",
             ),
         ])?;
 
@@ -181,6 +195,53 @@ impl<'a> JjClient<'a> {
         self.run(&args).map(|_| ())
     }
 
+    pub(crate) fn revisions(&self, revset: &str) -> Result<Vec<JjRevisionSummary>> {
+        let output = self.run_ignoring_working_copy(&[
+            OsString::from("log"),
+            OsString::from("-r"),
+            OsString::from(revset),
+            OsString::from("--no-graph"),
+            OsString::from("-T"),
+            OsString::from(
+                "commit_id.short(12) ++ \"\\0\" ++ change_id.short(12) ++ \"\\0\" ++ description.first_line() ++ \"\\n\"",
+            ),
+        ])?;
+
+        output
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(parse_revision_line)
+            .collect()
+    }
+
+    pub(crate) fn duplicate(&self, revset: &str) -> Result<JjCommandOutput> {
+        self.run_capture(&[OsString::from("duplicate"), OsString::from(revset)])
+    }
+
+    pub(crate) fn rebase_source_onto(&self, source: &str, target: &str) -> Result<JjCommandOutput> {
+        let output = self.run_capture(&[
+            OsString::from("rebase"),
+            OsString::from("-s"),
+            OsString::from(source),
+            OsString::from("-d"),
+            OsString::from(target),
+        ]);
+
+        output.map_err(|error| match error {
+            Error::JjCommandFailed { stderr, .. } => Error::MergeRebaseFailed { stderr },
+            other => other,
+        })
+    }
+
+    pub(crate) fn new_working_copy(&self, revision: &str) -> Result<JjCommandOutput> {
+        self.run_capture(&[OsString::from("new"), OsString::from(revision)])
+    }
+
+    pub(crate) fn has_conflicts(&self, revision: &str) -> Result<bool> {
+        let revset = format!("{revision} & conflicts()");
+        Ok(!self.revisions(&revset)?.is_empty())
+    }
+
     pub(crate) fn workspace_root(&self, workspace: &WorkspaceName) -> Result<PathBuf> {
         let args = [
             OsString::from("workspace"),
@@ -202,13 +263,21 @@ impl<'a> JjClient<'a> {
     }
 
     fn run(&self, args: &[OsString]) -> Result<String> {
+        let output = self.run_capture(args)?;
+        Ok(output.stdout)
+    }
+
+    fn run_capture(&self, args: &[OsString]) -> Result<JjCommandOutput> {
         let output = Command::new("jj")
             .args(args)
             .current_dir(self.workspace_root)
             .output()?;
 
         if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+            Ok(JjCommandOutput {
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            })
         } else {
             Err(Error::JjCommandFailed {
                 command: format_command(args),
@@ -395,10 +464,14 @@ fn parse_version_component(component: &str) -> Option<u64> {
 }
 
 fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
-    let mut parts = line.splitn(4, '\0');
-    let (Some(name), Some(is_current), Some(commit_id), Some(message)) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let mut parts = line.splitn(5, '\0');
+    let (Some(name), Some(is_current), Some(commit_id), Some(change_id), Some(message)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
         return Err(Error::InvalidJjWorkspaceListEntry(line.to_owned()));
     };
 
@@ -412,6 +485,22 @@ fn parse_workspace_line(line: &str) -> Result<JjWorkspaceListEntry> {
         name: WorkspaceName::new(name.to_owned())?,
         is_current,
         commit_id: commit_id.to_owned(),
+        change_id: change_id.to_owned(),
+        message: message.to_owned(),
+    })
+}
+
+fn parse_revision_line(line: &str) -> Result<JjRevisionSummary> {
+    let mut parts = line.splitn(3, '\0');
+    let (Some(commit_id), Some(change_id), Some(message)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Error::InvalidJjWorkspaceListEntry(line.to_owned()));
+    };
+
+    Ok(JjRevisionSummary {
+        commit_id: commit_id.to_owned(),
+        change_id: change_id.to_owned(),
         message: message.to_owned(),
     })
 }

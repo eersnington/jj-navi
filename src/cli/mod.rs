@@ -56,6 +56,14 @@ enum Commands {
         #[arg(help = "Workspace name to remove")]
         workspace: String,
     },
+    #[command(about = "Merge work from another JJ workspace")]
+    Merge {
+        #[arg(long, help = "Source workspace to merge from")]
+        from: String,
+
+        #[arg(long, help = "Target workspace to merge into; defaults to current")]
+        into: Option<String>,
+    },
     #[command(about = "Shell integration and future config commands")]
     #[command(arg_required_else_help = true)]
     Config {
@@ -145,6 +153,9 @@ fn try_run(
         }
         Commands::Remove { yes, workspace } => {
             commands::remove::run_remove(&path, &workspace, yes)?;
+        }
+        Commands::Merge { from, into } => {
+            commands::merge::run_merge(&path, &from, into.as_deref())?;
         }
         Commands::Config { command } => match command {
             ConfigCommands::Shell { command } => match command {

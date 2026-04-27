@@ -5,7 +5,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::types::{
     WorkspaceDiffSnapshot, WorkspaceDiffStatus, WorkspaceListEntry, WorkspaceListStatus,
-    WorkspacePathState, WorkspaceSnapshot,
+    WorkspaceMergeOutcome, WorkspacePathState, WorkspaceSnapshot,
 };
 
 use super::{
@@ -187,6 +187,7 @@ pub fn render_workspace_list_json(
                 name: snapshot.name.as_str(),
                 is_current: snapshot.is_current,
                 commit_id: snapshot.commit_id.as_str(),
+                change_id: snapshot.change_id.as_str(),
                 message: snapshot.message.as_str(),
                 path: WorkspacePathJson {
                     display: if snapshot.is_current {
@@ -240,6 +241,76 @@ pub fn render_workspace_list_json(
     .map_err(|error| crate::Error::JsonSerialization(error.to_string()))?;
 
     Ok(rendered)
+}
+
+/// Render a completed workspace merge as human-facing text.
+#[must_use]
+pub fn render_merge_outcome(outcome: &WorkspaceMergeOutcome) -> String {
+    let mut output = String::new();
+    let merge = &outcome.merge;
+
+    writeln!(
+        output,
+        "Merged {} from {} into {}",
+        pluralize(merge.revisions.len(), "change"),
+        merge.source.snapshot.name,
+        merge.target.snapshot.name,
+    )
+    .expect("write merge success");
+    writeln!(
+        output,
+        "  source: {}  change {}  commit {}",
+        merge.source.snapshot.name,
+        style_meta(&merge.source.snapshot.change_id),
+        style_meta(&merge.source.snapshot.commit_id),
+    )
+    .expect("write merge source");
+    writeln!(
+        output,
+        "  target: {}  change {}  commit {}",
+        merge.target.snapshot.name,
+        style_meta(&merge.target.snapshot.change_id),
+        style_meta(&merge.target.snapshot.commit_id),
+    )
+    .expect("write merge target");
+    writeln!(
+        output,
+        "  duplicate root: {}",
+        style_meta(&outcome.duplicated_root_change_id),
+    )
+    .expect("write duplicate root");
+    writeln!(
+        output,
+        "  duplicate head: {}",
+        style_meta(&outcome.duplicated_head_change_id),
+    )
+    .expect("write duplicate head");
+    writeln!(
+        output,
+        "  diff: {}",
+        render_diff_plain(&merge.source.snapshot.diff)
+    )
+    .expect("write merge diff");
+
+    append_command_output(&mut output, &outcome.duplicate_output);
+    append_command_output(&mut output, &outcome.rebase_output);
+    append_command_output(&mut output, &outcome.new_output);
+
+    output
+}
+
+fn append_command_output(output: &mut String, command_output: &str) {
+    for line in command_output.lines().filter(|line| !line.is_empty()) {
+        writeln!(output, "  {line}").expect("write command output");
+    }
+}
+
+fn pluralize(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("1 {singular}")
+    } else {
+        format!("{count} {singular}s")
+    }
 }
 
 fn render_workspace_status(entry: &WorkspaceListEntry) -> RenderedCell {
@@ -410,6 +481,7 @@ struct WorkspaceJsonEntry<'a> {
     name: &'a str,
     is_current: bool,
     commit_id: &'a str,
+    change_id: &'a str,
     message: &'a str,
     path: WorkspacePathJson,
     health: WorkspaceHealthJson<'a>,

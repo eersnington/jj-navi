@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::types::WorkspaceMergeRole;
+
 /// Crate-wide error type for CLI, discovery, and `jj` integration failures.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -64,6 +66,87 @@ pub enum Error {
     /// The user declined a destructive workspace removal prompt.
     #[error("error: remove cancelled\nhint: rerun with --yes to skip confirmation")]
     RemoveCancelled,
+
+    /// Merge would compare a workspace with itself.
+    #[error(
+        "error: cannot merge workspace '{0}' into itself\nhint: choose a different --into workspace"
+    )]
+    MergeSameWorkspace(String),
+
+    /// Merge could not find the requested workspace.
+    #[error(
+        "error: merge {role} workspace '{workspace}' does not exist\nhint: run navi list and choose an existing workspace"
+    )]
+    MergeWorkspaceMissing {
+        /// Source or target role.
+        role: WorkspaceMergeRole,
+        /// Requested workspace name.
+        workspace: String,
+    },
+
+    /// Merge found more than one requested workspace.
+    #[error(
+        "error: merge {role} workspace '{workspace}' is ambiguous\nhint: inspect jj workspace list before merging"
+    )]
+    MergeWorkspaceAmbiguous {
+        /// Source or target role.
+        role: WorkspaceMergeRole,
+        /// Requested workspace name.
+        workspace: String,
+    },
+
+    /// Merge found an unsafe workspace state.
+    #[error(
+        "error: merge {role} workspace '{workspace}' is not ready: {reason}\nhint: run navi list and fix the workspace before merging"
+    )]
+    MergeWorkspaceUnavailable {
+        /// Source or target role.
+        role: WorkspaceMergeRole,
+        /// Requested workspace name.
+        workspace: String,
+        /// Reason the workspace is unsafe.
+        reason: String,
+    },
+
+    /// Merge source has no non-empty work to duplicate.
+    #[error(
+        "error: merge source workspace '{source_workspace}' has no non-empty changes not already in target workspace '{target}'"
+    )]
+    MergeSourceEmpty {
+        /// Source workspace name.
+        source_workspace: String,
+        /// Target workspace name.
+        target: String,
+    },
+
+    /// Merge source has a shape this command does not handle safely yet.
+    #[error(
+        "error: merge source workspace '{source_workspace}' has multiple independent roots relative to target workspace '{target}'\nhint: merge one linear workspace stack at a time"
+    )]
+    MergeSourceMultipleRoots {
+        /// Source workspace name.
+        source_workspace: String,
+        /// Target workspace name.
+        target: String,
+    },
+
+    /// `jj duplicate` succeeded but Navi could not identify the duplicated root.
+    #[error(
+        "error: duplicated source workspace '{source_workspace}', but could not identify the duplicated root change\nhint: rebase was not attempted; inspect the new duplicate with jj log"
+    )]
+    MergeDuplicateRootUnknown {
+        /// Source workspace name.
+        source_workspace: String,
+    },
+
+    /// `jj rebase` failed after duplication.
+    #[error(
+        "error: merge stopped during rebase\nhint: duplicated work remains in the repo and source workspace was not rewritten; run jj resolve --list, resolve conflicts, then jj squash\n{stderr}"
+    )]
+    MergeRebaseFailed {
+        /// Rebase stderr.
+        stderr: String,
+    },
 
     /// Directory deletion failed after the workspace was already forgotten.
     #[error(
