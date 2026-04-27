@@ -134,7 +134,9 @@ fn repo_commands_fail_for_malformed_workspace_list_entry() {
         .args(["list"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("error: invalid workspace name"))
+        .stderr(predicate::str::contains(
+            "error: invalid jj workspace list entry",
+        ))
         .stderr(predicate::str::contains("default"));
 }
 
@@ -144,7 +146,7 @@ fn repo_commands_fail_for_invalid_workspace_list_current_marker() {
     let repo = TempJjRepo::new();
     let fake_jj = fake_jj_wrapper(
         Some("jj 0.39.0\n"),
-        Some("default\0x\0abc123\0message"),
+        Some("default\0x\0abc123\0chg123\0message"),
         None,
         Some(0),
     );
@@ -155,7 +157,9 @@ fn repo_commands_fail_for_invalid_workspace_list_current_marker() {
         .args(["list"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("error: invalid workspace name"))
+        .stderr(predicate::str::contains(
+            "error: invalid jj workspace list entry",
+        ))
         .stderr(predicate::str::contains("default"));
 }
 
