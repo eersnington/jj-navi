@@ -18,8 +18,9 @@ pub fn run_switch(
     revision: Option<&str>,
 ) -> Result<()> {
     let repo = NaviWorkspace::open(path)?;
+    let target = SwitchTarget::parse(workspace, &repo)?;
 
-    if workspace == "-" && !create && revision.is_none() {
+    if matches!(target, SwitchTarget::Previous) && !create && revision.is_none() {
         let (workspace, resolved_path) = repo.resolve_previous_workspace_path()?;
         emit_existing_switch(&repo, &workspace, resolved_path)?;
         warn_if_previous_workspace_state_update_fails(
@@ -27,9 +28,23 @@ pub fn run_switch(
         );
         return Ok(());
     }
+    if target.is_reserved() && (create || revision.is_some()) {
+        return Err(Error::ReservedSwitchTarget(workspace.to_owned()));
+    }
 
-    let workspace = normalize_workspace_alias(&repo, workspace);
-    let workspace = WorkspaceName::new(workspace)?;
+    if matches!(target, SwitchTarget::Primary) {
+        let (workspace, resolved_path) = repo.resolve_primary_workspace_path()?;
+        emit_existing_switch(&repo, &workspace, resolved_path)?;
+        warn_if_previous_workspace_state_update_fails(
+            &repo.record_previous_workspace_after_switch(&workspace),
+        );
+        return Ok(());
+    }
+
+    let workspace = match target {
+        SwitchTarget::Workspace(workspace) | SwitchTarget::Current(workspace) => workspace,
+        SwitchTarget::Previous | SwitchTarget::Primary => WorkspaceName::new(workspace)?,
+    };
 
     let resolved_path = if repo.workspace_exists(&workspace)? {
         repo.resolve_workspace_path(&workspace)?
@@ -51,11 +66,25 @@ pub fn run_switch(
     Ok(())
 }
 
-fn normalize_workspace_alias(repo: &NaviWorkspace, workspace: &str) -> String {
-    if workspace == "@" {
-        repo.current_workspace_name().as_str().to_owned()
-    } else {
-        workspace.to_owned()
+enum SwitchTarget {
+    Workspace(WorkspaceName),
+    Current(WorkspaceName),
+    Previous,
+    Primary,
+}
+
+impl SwitchTarget {
+    fn parse(workspace: &str, repo: &NaviWorkspace) -> Result<Self> {
+        match workspace {
+            "@" => Ok(Self::Current(repo.current_workspace_name().clone())),
+            "-" => Ok(Self::Previous),
+            "^" => Ok(Self::Primary),
+            workspace => Ok(Self::Workspace(WorkspaceName::new(workspace)?)),
+        }
+    }
+
+    const fn is_reserved(&self) -> bool {
+        matches!(self, Self::Previous | Self::Primary)
     }
 }
 

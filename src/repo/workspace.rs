@@ -20,7 +20,7 @@ use super::metadata::WorkspaceMetadataStore;
 use super::paths::{
     ResolvedWorkspacePath, WorkspacePathResolutionOptions, WorkspaceTemplateInputs,
     derive_repo_name, display_path_for_list, metadata_status, planned_workspace_root,
-    resolve_workspace_path_from_sources, workspace_list_statuses,
+    primary_workspace_root, resolve_workspace_path_from_sources, workspace_list_statuses,
 };
 use super::state::RepoStateStore;
 
@@ -136,6 +136,31 @@ impl NaviWorkspace {
         }
 
         Ok((workspace.clone(), self.resolve_workspace_path(&workspace)?))
+    }
+
+    /// Resolve the repo-primary workspace for `switch ^`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the repo-primary directory is not a live workspace
+    /// registered in this repo and the compatibility `default` fallback is not
+    /// available.
+    pub(crate) fn resolve_primary_workspace_path(
+        &self,
+    ) -> Result<(WorkspaceName, ResolvedWorkspacePath)> {
+        if let Some((workspace, resolved)) = self.resolve_primary_workspace_from_repo_root()? {
+            return Ok((workspace, resolved));
+        }
+
+        let default_workspace = WorkspaceName::new(super::paths::DEFAULT_WORKSPACE_NAME)?;
+        if self.workspace_exists(&default_workspace)? {
+            return Ok((
+                default_workspace.clone(),
+                self.resolve_workspace_path(&default_workspace)?,
+            ));
+        }
+
+        Err(Error::PrimaryWorkspaceUnavailable)
     }
 
     /// Record the workspace being left after a successful switch.
@@ -557,6 +582,44 @@ impl NaviWorkspace {
                 },
             },
         )
+    }
+
+    fn resolve_primary_workspace_from_repo_root(
+        &self,
+    ) -> Result<Option<(WorkspaceName, ResolvedWorkspacePath)>> {
+        let Some(path) = primary_workspace_root(&self.repo_storage_path) else {
+            return Ok(None);
+        };
+        if !path.is_dir() || !path.join(".jj").is_dir() {
+            return Ok(None);
+        }
+
+        let Ok(candidate_repo_storage_path) = resolve_repo_storage_path(&path) else {
+            return Ok(None);
+        };
+        let Ok(candidate_repo_storage_path) = fs::canonicalize(candidate_repo_storage_path) else {
+            return Ok(None);
+        };
+        if candidate_repo_storage_path != self.repo_storage_path {
+            return Ok(None);
+        }
+
+        let jj = JjClient::new(&path);
+        let Ok(workspace) = jj.current_workspace_name() else {
+            return Ok(None);
+        };
+        if !self.workspace_exists(&workspace)? {
+            return Ok(None);
+        }
+
+        Ok(Some((
+            workspace,
+            ResolvedWorkspacePath {
+                path,
+                state: WorkspacePathState::Confirmed,
+                source: crate::types::WorkspacePathSource::RepoPrimary,
+            },
+        )))
     }
 
     fn resolve_merge_workspace(

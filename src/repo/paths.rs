@@ -14,7 +14,7 @@ use super::discovery::resolve_repo_storage_path;
 use super::jj::JjClient;
 use super::metadata::WorkspaceMetadataStore;
 
-const DEFAULT_WORKSPACE_NAME: &str = "default";
+pub(crate) const DEFAULT_WORKSPACE_NAME: &str = "default";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedWorkspacePath {
@@ -272,6 +272,13 @@ fn repo_primary_workspace_root(
     (workspace.as_str() == DEFAULT_WORKSPACE_NAME)
         .then_some(repo_storage_path)
         .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+}
+
+pub(crate) fn primary_workspace_root(repo_storage_path: &Path) -> Option<PathBuf> {
+    repo_storage_path
+        .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
 }

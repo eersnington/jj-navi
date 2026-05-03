@@ -661,6 +661,145 @@ fn switch_at_writes_cd_directive_when_shell_integration_is_active() {
     assert_eq!(contents, "cd -- '..'\n");
 }
 
+#[test]
+fn switch_caret_prints_primary_workspace_path_from_secondary_workspace() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "^"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../{}\n", repo.repo_name())))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn switch_caret_prints_primary_workspace_path_from_nested_secondary_directory() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    let nested_path = feature_path.join("nested").join("dir");
+    std::fs::create_dir_all(&nested_path).expect("create nested path");
+
+    command("navi")
+        .current_dir(&nested_path)
+        .args(["switch", "^"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../../../{}\n", repo.repo_name())))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn switch_caret_records_previous_workspace_state() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "^"])
+        .assert()
+        .success();
+
+    let state = std::fs::read_to_string(repo.navi_state_path()).expect("read navi state");
+    assert!(state.contains("previous_workspace = \"feature-auth\""));
+}
+
+#[test]
+fn switch_caret_uses_primary_root_after_primary_workspace_is_renamed() {
+    let repo = TempJjRepo::new();
+    repo.run(&["workspace", "rename", "primary"]);
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+
+    command("navi")
+        .current_dir(&feature_path)
+        .args(["switch", "^"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!("../{}\n", repo.repo_name())))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn switch_caret_writes_cd_directive_when_shell_integration_is_active() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "feature-auth"])
+        .assert()
+        .success();
+
+    let feature_path = repo
+        .path()
+        .with_file_name(format!("{}.feature-auth", repo.repo_name()));
+    let directive_dir = tempfile::TempDir::new().expect("temp directive dir");
+    let directive_file = directive_dir.path().join("navi-directives.sh");
+
+    command("navi")
+        .current_dir(&feature_path)
+        .env("NAVI_DIRECTIVE_FILE", &directive_file)
+        .args(["switch", "^"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::is_empty());
+
+    let contents = std::fs::read_to_string(directive_file).expect("read directive file");
+    assert_eq!(contents, format!("cd -- '../{}'\n", repo.repo_name()));
+}
+
+#[test]
+fn switch_create_caret_fails_because_caret_is_reserved() {
+    let repo = TempJjRepo::new();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "--create", "^"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: '^' is a reserved switch target",
+        ));
+}
+
 #[cfg(unix)]
 #[test]
 fn switch_existing_warns_but_succeeds_when_repo_state_cannot_be_saved() {

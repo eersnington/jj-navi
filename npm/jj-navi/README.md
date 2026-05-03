@@ -97,6 +97,7 @@ navi remove feature-auth
 ```sh
 navi switch <workspace>          # switch to a workspace
 navi cd <workspace>              # alias for switch
+navi switch ^                    # switch to the primary workspace
 navi switch -                    # switch to previous workspace
 navi switch @                    # switch to current workspace explicitly
 navi switch --create <workspace> # create and switch

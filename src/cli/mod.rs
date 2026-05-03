@@ -21,7 +21,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(
-        about = "Switch to an existing workspace, '-' for previous, or create one with --create",
+        about = "Switch to an existing workspace, '^' for primary, '@' for current, '-' for previous, or create one with --create",
         visible_alias = "cd"
     )]
     Switch {
@@ -36,7 +36,7 @@ enum Commands {
         revision: Option<String>,
 
         #[arg(
-            help = "Workspace name, or '-' for the previous workspace",
+            help = "Workspace name, '^' for primary, '@' for current, or '-' for previous",
             add = completion::workspace_value_completer()
         )]
         workspace: String,
