@@ -273,6 +273,7 @@ jobs:
           ARTIFACT_DIR="$RUNNER_TEMP/build/${{ matrix.platform }}"
           mkdir -p "$ARTIFACT_DIR"
           install -m 755 "target/${{ matrix.rust_target }}/release/navi" "$ARTIFACT_DIR/navi"
+          install -m 755 "target/${{ matrix.rust_target }}/release/nv" "$ARTIFACT_DIR/nv"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -377,6 +378,7 @@ jobs:
             PLATFORM_DIR="$NPM_STAGE_DIR/$platform"
             node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION" "$PLATFORM_DIR"
             install -m 755 "$ARTIFACTS_DIR/$platform/navi" "$PLATFORM_DIR/navi"
+            install -m 755 "$ARTIFACTS_DIR/$platform/nv" "$PLATFORM_DIR/nv"
           done
 
       - name: Publish npm platform packages
@@ -411,7 +413,8 @@ jobs:
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             mkdir -p "$STAGE_DIR/$platform"
             install -m 755 "$ARTIFACTS_DIR/$platform/navi" "$STAGE_DIR/$platform/navi"
-            tar -C "$STAGE_DIR/$platform" -czf "$RELEASE_DIR/jj-navi-$platform.tar.gz" navi
+            install -m 755 "$ARTIFACTS_DIR/$platform/nv" "$STAGE_DIR/$platform/nv"
+            tar -C "$STAGE_DIR/$platform" -czf "$RELEASE_DIR/jj-navi-$platform.tar.gz" navi nv
           done
 
       - name: Generate checksums
