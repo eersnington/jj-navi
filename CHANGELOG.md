@@ -2,6 +2,16 @@
 
 All notable changes to `jj-navi` live here.
 
+## v0.2.3 - 2026-05-04
+
+### Minor
+
+- feat: primary workspace switch with ^ alias (#67, @eersnington)
+
+### Patch
+
+- fix: restore nv shell completion (#66, @eersnington)
+
 ## v0.2.2 - 2026-04-27
 
 ### Minor
@@ -87,6 +97,7 @@ All notable changes to `jj-navi` live here.
 ### General
 
 - Initial alpha release.
+
 
 
 
