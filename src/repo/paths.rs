@@ -14,7 +14,7 @@ use super::discovery::resolve_repo_storage_path;
 use super::jj::JjClient;
 use super::metadata::WorkspaceMetadataStore;
 
-const DEFAULT_WORKSPACE_NAME: &str = "default";
+pub(crate) const DEFAULT_WORKSPACE_NAME: &str = "default";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedWorkspacePath {

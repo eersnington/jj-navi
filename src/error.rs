@@ -228,6 +228,18 @@ pub enum Error {
     )]
     PreviousWorkspaceNotFound(String),
 
+    /// The repo-primary workspace could not be resolved.
+    #[error(
+        "error: primary workspace could not be resolved\nhint: run navi list and switch by workspace name"
+    )]
+    PrimaryWorkspaceUnavailable,
+
+    /// A symbolic switch target was used where a workspace name is required.
+    #[error(
+        "error: '{0}' is a reserved switch target\nhint: use a workspace name with --create or --revision"
+    )]
+    ReservedSwitchTarget(String),
+
     /// Workspace metadata could not be parsed or validated.
     #[error("error: invalid workspace metadata in {path}\n{message}")]
     InvalidWorkspaceMetadata {
