@@ -20,7 +20,7 @@ use super::metadata::WorkspaceMetadataStore;
 use super::paths::{
     ResolvedWorkspacePath, WorkspacePathResolutionOptions, WorkspaceTemplateInputs,
     derive_repo_name, display_path_for_list, metadata_status, planned_workspace_root,
-    primary_workspace_root, resolve_workspace_path_from_sources, workspace_list_statuses,
+    resolve_workspace_path_from_sources, workspace_list_statuses,
 };
 use super::state::RepoStateStore;
 
@@ -587,39 +587,70 @@ impl NaviWorkspace {
     fn resolve_primary_workspace_from_repo_root(
         &self,
     ) -> Result<Option<(WorkspaceName, ResolvedWorkspacePath)>> {
-        let Some(path) = primary_workspace_root(&self.repo_storage_path) else {
-            return Ok(None);
-        };
-        if !path.is_dir() || !path.join(".jj").is_dir() {
-            return Ok(None);
+        let candidates = self.valid_registered_workspace_roots()?;
+        if let Some((workspace, path)) = candidates.iter().find(|(_, path)| {
+            let repo_path = path.join(".jj").join("repo");
+            repo_path.is_dir()
+                && fs::canonicalize(repo_path).is_ok_and(|path| path == self.repo_storage_path)
+        }) {
+            return Ok(Some(primary_workspace_resolution(
+                workspace.clone(),
+                path.clone(),
+            )));
         }
 
-        let Ok(candidate_repo_storage_path) = resolve_repo_storage_path(&path) else {
-            return Ok(None);
+        let mut repo_named_candidates = candidates
+            .iter()
+            .filter(|(_, path)| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name == self.repo_name)
+            })
+            .collect::<Vec<_>>();
+        if repo_named_candidates.len() == 1 {
+            let (workspace, path) = repo_named_candidates.remove(0);
+            return Ok(Some(primary_workspace_resolution(
+                workspace.clone(),
+                path.clone(),
+            )));
+        }
+
+        Ok(None)
+    }
+
+    fn valid_registered_workspace_roots(&self) -> Result<Vec<(WorkspaceName, PathBuf)>> {
+        let jj = JjClient::new(&self.workspace_root);
+        let mut roots = Vec::new();
+
+        for entry in jj.list_workspaces()? {
+            let Ok(path) = jj.workspace_root(&entry.name) else {
+                continue;
+            };
+            if self.is_valid_workspace_root(&entry.name, &path) {
+                roots.push((entry.name, path));
+            }
+        }
+
+        Ok(roots)
+    }
+
+    fn is_valid_workspace_root(&self, workspace: &WorkspaceName, path: &Path) -> bool {
+        if !path.is_dir() || !path.join(".jj").is_dir() {
+            return false;
+        }
+        let Ok(candidate_repo_storage_path) = resolve_repo_storage_path(path) else {
+            return false;
         };
         let Ok(candidate_repo_storage_path) = fs::canonicalize(candidate_repo_storage_path) else {
-            return Ok(None);
+            return false;
         };
         if candidate_repo_storage_path != self.repo_storage_path {
-            return Ok(None);
+            return false;
         }
 
-        let jj = JjClient::new(&path);
-        let Ok(workspace) = jj.current_workspace_name() else {
-            return Ok(None);
-        };
-        if !self.workspace_exists(&workspace)? {
-            return Ok(None);
-        }
-
-        Ok(Some((
-            workspace,
-            ResolvedWorkspacePath {
-                path,
-                state: WorkspacePathState::Confirmed,
-                source: crate::types::WorkspacePathSource::RepoPrimary,
-            },
-        )))
+        let jj = JjClient::new(path);
+        jj.current_workspace_name()
+            .is_ok_and(|current_workspace| current_workspace == *workspace)
     }
 
     fn resolve_merge_workspace(
@@ -729,6 +760,20 @@ fn apply_workspace_details(
     snapshot.age = crate::types::WorkspaceAgeSnapshot {
         created_at: metadata.workspace_created_at(&snapshot.name),
     };
+}
+
+fn primary_workspace_resolution(
+    workspace: WorkspaceName,
+    path: PathBuf,
+) -> (WorkspaceName, ResolvedWorkspacePath) {
+    (
+        workspace,
+        ResolvedWorkspacePath {
+            path,
+            state: WorkspacePathState::Confirmed,
+            source: crate::types::WorkspacePathSource::RepoPrimary,
+        },
+    )
 }
 
 fn validate_merge_snapshot(snapshot: &WorkspaceSnapshot, role: WorkspaceMergeRole) -> Result<()> {

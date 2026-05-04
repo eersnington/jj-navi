@@ -276,13 +276,6 @@ fn repo_primary_workspace_root(
         .map(Path::to_path_buf)
 }
 
-pub(crate) fn primary_workspace_root(repo_storage_path: &Path) -> Option<PathBuf> {
-    repo_storage_path
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-}
-
 pub(crate) fn workspace_list_statuses(
     workspace: &WorkspaceName,
     resolved: &ResolvedWorkspacePath,
