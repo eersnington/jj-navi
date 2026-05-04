@@ -2,19 +2,20 @@
 
 const { execSync, spawnSync } = require("child_process");
 const { existsSync } = require("fs");
+const { basename } = require("path");
 
 const PLATFORMS = {
   darwin: {
-    x64: "jj-navi-darwin-x64/navi",
-    arm64: "jj-navi-darwin-arm64/navi",
+    x64: "jj-navi-darwin-x64",
+    arm64: "jj-navi-darwin-arm64",
   },
   linux: {
-    x64: "jj-navi-linux-x64/navi",
-    arm64: "jj-navi-linux-arm64/navi",
+    x64: "jj-navi-linux-x64",
+    arm64: "jj-navi-linux-arm64",
   },
   "linux-musl": {
-    x64: "jj-navi-linux-x64-musl/navi",
-    arm64: "jj-navi-linux-arm64-musl/navi",
+    x64: "jj-navi-linux-x64-musl",
+    arm64: "jj-navi-linux-arm64-musl",
   },
 };
 
@@ -31,29 +32,34 @@ function isMusl() {
   }
 }
 
-function resolveBinaryPath() {
+function commandName() {
+  return basename(process.argv[1]) === "nv" ? "nv" : "navi";
+}
+
+function resolveBinaryPath(command) {
   if (process.env.NAVI_BINARY_PATH) {
     return process.env.NAVI_BINARY_PATH;
   }
 
   const platform = process.platform === "linux" && isMusl() ? "linux-musl" : process.platform;
-  const packagePath = PLATFORMS[platform]?.[process.arch];
+  const packageName = PLATFORMS[platform]?.[process.arch];
 
-  if (!packagePath) {
+  if (!packageName) {
     return null;
   }
 
   try {
-    return require.resolve(packagePath);
+    return require.resolve(`${packageName}/${command}`);
   } catch {
     return null;
   }
 }
 
-const binaryPath = resolveBinaryPath();
+const command = commandName();
+const binaryPath = resolveBinaryPath(command);
 
 if (!binaryPath) {
-  console.error(`Error: No prebuilt navi binary for ${process.platform}-${process.arch}`);
+  console.error(`Error: No prebuilt ${command} binary for ${process.platform}-${process.arch}`);
   console.error("Build from source with `cargo install jj-navi` or set NAVI_BINARY_PATH.");
   process.exit(1);
 }

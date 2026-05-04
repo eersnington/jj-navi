@@ -49,6 +49,22 @@ fn config_shell_init_bash_registers_completion() {
         .stdout(predicates::str::contains("COMPLETE=bash command navi"))
         .stdout(predicates::str::contains(
             "complete -o nospace -o bashdefault -F _navi_lazy_complete navi",
+        ))
+        .stdout(predicates::str::contains("COMPLETE=bash command nv"))
+        .stdout(predicates::str::contains(
+            "complete -o nospace -o bashdefault -F _nv_lazy_complete nv",
+        ));
+}
+
+#[test]
+fn config_shell_init_bash_from_nv_registers_nv_first() {
+    command("nv")
+        .args(["config", "shell", "init", "bash"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("COMPLETE=bash command nv"))
+        .stdout(predicates::str::contains(
+            "complete -o nospace -o bashdefault -F _nv_lazy_complete nv",
         ));
 }
 
@@ -61,7 +77,9 @@ fn config_shell_init_zsh_registers_completion() {
         .stdout(predicates::str::contains("COMPLETE=zsh command navi"))
         .stdout(predicates::str::contains(
             "compdef _navi_lazy_complete navi",
-        ));
+        ))
+        .stdout(predicates::str::contains("COMPLETE=zsh command nv"))
+        .stdout(predicates::str::contains("compdef _nv_lazy_complete nv"));
 }
 
 #[test]
