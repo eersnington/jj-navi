@@ -1,8 +1,8 @@
 name: Detect Release Publish
 
 on:
-  pull_request_target:
-    types: [closed]
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -30,12 +30,15 @@ jobs:
 
           semver_re = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
           repo = os.environ["GITHUB_REPOSITORY"]
+          pushed_sha = os.environ["GITHUB_SHA"]
 
-          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-              event = json.load(handle)
-          pr = event.get("pull_request")
-          if not isinstance(pr, dict):
-              sys.exit("pull_request payload missing")
+          def gh_api(path: str) -> list[dict[str, object]]:
+              output = subprocess.check_output(["gh", "api", "--paginate", "--slurp", path], text=True)
+              pages = json.loads(output)
+              items: list[dict[str, object]] = []
+              for page in pages:
+                  items.extend(page)
+              return items
 
           def release_branch_version(pr: dict[str, object]) -> str | None:
               if pr.get("merged") is not True:
@@ -83,10 +86,22 @@ jobs:
 
               return version
 
-          version = release_branch_version(pr)
-          if version is None:
-              print("skip: closed PR is not a merged bot-authored release PR")
+          closed_pulls = gh_api(f"repos/{repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100")
+          matches = []
+          for pr in closed_pulls:
+              if pr.get("merge_commit_sha") != pushed_sha:
+                  continue
+              version = release_branch_version(pr)
+              if version is not None:
+                  matches.append((pr, version))
+
+          if not matches:
+              print("skip: pushed commit is not a merged bot-authored release PR")
               sys.exit(0)
+          if len(matches) != 1:
+              sys.exit(f"expected exactly one merged release PR for pushed commit {pushed_sha}")
+
+          pr, version = matches[0]
 
           merge_commit_sha = pr.get("merge_commit_sha")
           if not isinstance(merge_commit_sha, str) or merge_commit_sha == "":
