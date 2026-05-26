@@ -11,16 +11,29 @@ use super::{MANAGED_BLOCK_END, MANAGED_BLOCK_START, ManagedBlockState, inspect_m
 /// Render the managed shell block inserted into a shell rc file.
 #[must_use]
 pub fn render_shell_install_block(command_name: &str, shell: ShellKind) -> String {
-    format!(
-        "{MANAGED_BLOCK_START}\neval \"$(command {command_name} config shell init {shell})\"\n{MANAGED_BLOCK_END}\n",
-        command_name = command_name,
+    let load_line = format!(
+        "eval \"$(command {command_name} config shell init {shell})\"",
         shell = shell.as_str(),
-    )
+    );
+    format!("{MANAGED_BLOCK_START}\n{load_line}\n{MANAGED_BLOCK_END}\n")
 }
 
 pub(crate) fn shell_rc_path(shell: ShellKind) -> Result<PathBuf> {
+    if shell == ShellKind::Fish {
+        return Ok(fish_config_dir()?.join("functions/navi.fish"));
+    }
     let home = std::env::var("HOME").map_err(|_| Error::HomeDirectory)?;
     Ok(PathBuf::from(home).join(shell.rc_file_name()))
+}
+
+pub(crate) fn fish_config_dir() -> Result<PathBuf> {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return Ok(PathBuf::from(xdg).join("fish"));
+        }
+    }
+    let home = std::env::var("HOME").map_err(|_| Error::HomeDirectory)?;
+    Ok(PathBuf::from(home).join(".config/fish"))
 }
 
 pub(crate) fn upsert_managed_block(existing: &str, block: &str, rc_path: &Path) -> Result<String> {
@@ -84,7 +97,7 @@ pub(crate) fn doctor_findings(command_name: &str) -> Result<Vec<DoctorFinding>> 
                 DoctorFindingCode::UnsupportedShell,
                 format!("shell '{shell}' is not supported"),
                 None,
-                Some(String::from("supported shells: bash, zsh")),
+                Some(String::from("supported shells: bash, zsh, fish")),
             )]);
         }
         Err(error) => return Err(error),
@@ -103,6 +116,19 @@ pub(crate) fn doctor_findings(command_name: &str) -> Result<Vec<DoctorFinding>> 
         }
         Err(error) => return Err(error),
     };
+
+    if shell == ShellKind::Fish {
+        if rc_path.exists() {
+            return Ok(vec![]);
+        }
+        return Ok(vec![shell_finding(
+            DoctorSeverity::Info,
+            DoctorFindingCode::ShellIntegrationMissing,
+            format!("fish function file {} does not exist", rc_path.display()),
+            Some(rc_path.display().to_string()),
+            Some(shell_install_hint(command_name, shell)),
+        )]);
+    }
 
     let contents = match fs::read_to_string(&rc_path) {
         Ok(contents) => contents,

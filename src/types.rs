@@ -118,6 +118,8 @@ pub enum ShellKind {
     Bash,
     /// Zsh shell.
     Zsh,
+    /// Fish shell.
+    Fish,
 }
 
 impl ShellKind {
@@ -130,6 +132,7 @@ impl ShellKind {
         match value {
             "bash" => Ok(Self::Bash),
             "zsh" => Ok(Self::Zsh),
+            "fish" => Ok(Self::Fish),
             other => Err(Error::UnsupportedShell(other.to_owned())),
         }
     }
@@ -154,6 +157,7 @@ impl ShellKind {
         match self {
             Self::Bash => "bash",
             Self::Zsh => "zsh",
+            Self::Fish => "fish",
         }
     }
 
@@ -163,6 +167,7 @@ impl ShellKind {
         match self {
             Self::Bash => ".bashrc",
             Self::Zsh => ".zshrc",
+            Self::Fish => ".config/fish/functions/navi.fish",
         }
     }
 }
