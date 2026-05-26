@@ -7,11 +7,13 @@ use common::command;
 #[test]
 fn config_shell_init_rejects_unsupported_shell() {
     command("navi")
-        .args(["config", "shell", "init", "fish"])
+        .args(["config", "shell", "init", "pwsh"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid value 'fish'"))
-        .stderr(predicate::str::contains("[possible values: bash, zsh]"));
+        .stderr(predicate::str::contains("invalid value 'pwsh'"))
+        .stderr(predicate::str::contains(
+            "[possible values: bash, zsh, fish]",
+        ));
 }
 
 #[test]
@@ -21,7 +23,9 @@ fn config_shell_init_missing_shell_mentions_supported_values() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("shell name required"))
-        .stderr(predicate::str::contains("hint: use one of: bash, zsh"));
+        .stderr(predicate::str::contains(
+            "hint: use one of: bash, zsh, fish",
+        ));
 }
 
 #[test]
@@ -96,6 +100,46 @@ fn config_shell_install_creates_zshrc_managed_block() {
     let contents = std::fs::read_to_string(zshrc).expect("read zshrc");
     assert_eq!(contents.matches("# >>> jj-navi shell init >>>").count(), 1);
     assert!(contents.contains("eval \"$(command navi config shell init zsh)\""));
+}
+
+#[test]
+fn config_shell_init_fish_emits_function_wrappers() {
+    command("navi")
+        .args(["config", "shell", "init", "fish"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("function navi"))
+        .stdout(predicates::str::contains("function nv"))
+        .stdout(predicates::str::contains(
+            "set -lx NAVI_DIRECTIVE_FILE $directive_file",
+        ));
+}
+
+#[test]
+fn config_shell_install_creates_fish_functions_and_completions() {
+    let home = tempfile::TempDir::new().expect("temp home");
+    let navi_func = home.path().join(".config/fish/functions/navi.fish");
+    let nv_func = home.path().join(".config/fish/functions/nv.fish");
+    let navi_comp = home.path().join(".config/fish/completions/navi.fish");
+    let nv_comp = home.path().join(".config/fish/completions/nv.fish");
+
+    command("navi")
+        .env("HOME", home.path())
+        .args(["config", "shell", "install", "--shell", "fish"])
+        .assert()
+        .success();
+
+    let navi_function = std::fs::read_to_string(navi_func).expect("read navi function");
+    assert!(navi_function.contains("function navi"));
+
+    let nv_function = std::fs::read_to_string(nv_func).expect("read nv function");
+    assert!(nv_function.contains("function nv"));
+
+    let navi_completions = std::fs::read_to_string(navi_comp).expect("read navi completions");
+    assert!(navi_completions.contains("complete --keep-order --exclusive --command navi"));
+
+    let nv_completions = std::fs::read_to_string(nv_comp).expect("read nv completions");
+    assert!(nv_completions.contains("complete --keep-order --exclusive --command nv"));
 }
 
 #[test]

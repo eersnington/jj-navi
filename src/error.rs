@@ -258,7 +258,7 @@ pub enum Error {
     UnsupportedShell(String),
 
     /// A shell argument is required for shell-init generation.
-    #[error("error: shell name required\nhint: use one of: bash, zsh")]
+    #[error("error: shell name required\nhint: use one of: bash, zsh, fish")]
     ShellRequired,
 
     /// The current shell could not be inferred from `$SHELL`.
