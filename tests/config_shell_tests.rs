@@ -125,6 +125,7 @@ fn config_shell_install_creates_fish_functions_and_completions() {
 
     command("navi")
         .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
         .args(["config", "shell", "install", "--shell", "fish"])
         .assert()
         .success();
