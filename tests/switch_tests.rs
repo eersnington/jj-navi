@@ -38,6 +38,46 @@ fn switch_existing_prints_relative_path() {
 }
 
 #[test]
+fn switch_existing_when_workspaces_share_working_copy_change() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+
+    repo.run(&["edit", "feature-auth@"]);
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )));
+}
+
+#[test]
+fn switch_existing_when_shared_working_copy_change_has_no_jj_workspace_paths() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+
+    repo.run(&["edit", "feature-auth@"]);
+    repo.clear_workspace_store_index();
+
+    command("navi")
+        .current_dir(repo.path())
+        .args(["switch", "feature-auth"])
+        .assert()
+        .success()
+        .stdout(predicate::eq(format!(
+            "../{}.feature-auth\n",
+            repo.repo_name()
+        )))
+        .stderr(predicate::str::contains(
+            "warning: jj could not resolve this workspace path; using navi fallback",
+        ));
+}
+
+#[test]
 fn switch_create_creates_workspace() {
     let repo = TempJjRepo::new();
     let expected_path =
