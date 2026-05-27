@@ -143,19 +143,44 @@ impl<'a> JjClient<'a> {
     }
 
     pub(crate) fn current_workspace_name(&self) -> Result<WorkspaceName> {
+        let current_root = fs::canonicalize(self.workspace_root)?;
         let output = self.run_ignoring_working_copy(&[
             OsString::from("workspace"),
             OsString::from("list"),
             OsString::from("-T"),
-            OsString::from("if(target.current_working_copy(), name ++ \"\\n\", \"\")"),
+            OsString::from("name ++ \"\\n\""),
         ])?;
 
-        let name = output
-            .lines()
-            .find(|line| !line.is_empty())
-            .ok_or(Error::OrphanedWorkspace)?;
+        for name in output.lines().filter(|line| !line.is_empty()) {
+            let workspace = WorkspaceName::new(name.to_owned())?;
+            let Ok(root) = self.workspace_root(&workspace) else {
+                continue;
+            };
+            if fs::canonicalize(root).is_ok_and(|root| root == current_root) {
+                return Ok(workspace);
+            }
+        }
 
-        WorkspaceName::new(name.to_owned())
+        // `current_working_copy()` is commit-based, so multiple workspaces can
+        // match after `jj edit other@`; use it only as a degraded fallback.
+        self.current_working_copy_names()?
+            .into_iter()
+            .next()
+            .ok_or(Error::OrphanedWorkspace)
+    }
+
+    pub(crate) fn workspace_matches_current_root(&self, workspace: &WorkspaceName) -> Result<bool> {
+        let current_root = fs::canonicalize(self.workspace_root)?;
+        if let Ok(root) = self.workspace_root(workspace) {
+            return Ok(fs::canonicalize(root).is_ok_and(|root| root == current_root));
+        }
+
+        // Older JJ workspaces can lack recorded paths. In that case, a name
+        // pointing at this working-copy commit is the best public signal left.
+        Ok(self
+            .current_working_copy_names()?
+            .iter()
+            .any(|name| name == workspace))
     }
 
     pub(crate) fn list_workspaces(&self) -> Result<Vec<JjWorkspaceListEntry>> {
@@ -291,6 +316,21 @@ impl<'a> JjClient<'a> {
         full_args.push(OsString::from("--ignore-working-copy"));
         full_args.extend(args.iter().cloned());
         self.run(&full_args)
+    }
+
+    fn current_working_copy_names(&self) -> Result<Vec<WorkspaceName>> {
+        let output = self.run_ignoring_working_copy(&[
+            OsString::from("workspace"),
+            OsString::from("list"),
+            OsString::from("-T"),
+            OsString::from("if(target.current_working_copy(), name ++ \"\\n\", \"\")"),
+        ])?;
+
+        output
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| WorkspaceName::new(line.to_owned()))
+            .collect()
     }
 }
 

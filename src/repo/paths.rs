@@ -244,9 +244,9 @@ fn classify_candidate_path(
     }
 
     let jj = JjClient::new(path);
-    match jj.current_workspace_name() {
-        Ok(current_workspace) if &current_workspace == workspace => CandidateState::Valid,
-        _ => CandidateState::Stale,
+    match jj.workspace_matches_current_root(workspace) {
+        Ok(true) => CandidateState::Valid,
+        Ok(false) | Err(_) => CandidateState::Stale,
     }
 }
 

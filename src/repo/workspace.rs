@@ -649,8 +649,7 @@ impl NaviWorkspace {
         }
 
         let jj = JjClient::new(path);
-        jj.current_workspace_name()
-            .is_ok_and(|current_workspace| current_workspace == *workspace)
+        matches!(jj.workspace_matches_current_root(workspace), Ok(true))
     }
 
     fn resolve_merge_workspace(

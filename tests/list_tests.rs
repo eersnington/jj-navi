@@ -78,6 +78,27 @@ fn list_uses_actual_jj_workspace_path_for_non_navi_workspace() {
 }
 
 #[test]
+fn list_handles_shared_working_copy_change_without_jj_workspace_paths() {
+    let repo = TempJjRepo::new();
+    repo.create_workspace("feature-auth");
+
+    repo.run(&["edit", "feature-auth@"]);
+    repo.clear_workspace_store_index();
+
+    let output = command_output("navi", repo.path(), &["list", "--json"]);
+
+    assert!(output.status.success(), "json list failed");
+    let json = parse_list_json(&output);
+    let default = workspace_by_name(&json, "default");
+    let feature = workspace_by_name(&json, "feature-auth");
+
+    assert_eq!(default["path"]["source"], "current_workspace");
+    assert_eq!(default["health"]["statuses"][0], "ok");
+    assert_eq!(feature["path"]["source"], "template");
+    assert_eq!(feature["path"]["state"], "inferred");
+}
+
+#[test]
 fn list_uses_repo_primary_root_for_default_when_jj_path_is_missing() {
     let repo = TempJjRepo::new();
 
